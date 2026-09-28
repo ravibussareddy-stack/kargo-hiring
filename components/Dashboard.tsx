@@ -54,6 +54,7 @@ export default function Dashboard({ data }: { data: DashboardData }) {
 
   return (
     <>
+      <Overview candidates={data.candidates} />
       <div className="toolbar">
         <div className="seg">
           {(["PM", "SPM"] as Role[]).map((r) => (
@@ -104,6 +105,10 @@ export default function Dashboard({ data }: { data: DashboardData }) {
         <span>{list.length} candidates · {inviteCount} to invite</span>
         {data.testMode && <><span>·</span><span className="dot" /><span>Test mode: emails go to the test inbox</span></>}
         {!data.emailConfigured && <><span>·</span><span>Email sending not configured</span></>}
+        <span className="spacer" />
+        <span className="legend" aria-label="Score bar sections">
+          {BUCKETS.map((b) => <span key={b.key}><i style={{ background: b.color }} />{b.short}</span>)}
+        </span>
       </div>
 
       {busy && <div className="notice">{busy}</div>}
@@ -123,6 +128,60 @@ export default function Dashboard({ data }: { data: DashboardData }) {
         ))}
       </div>
     </>
+  );
+}
+
+/** Pipeline totals across both roles — always the full picture, regardless of tab. */
+function Overview({ candidates }: { candidates: CandidateView[] }) {
+  const by = (role: Role, f: (c: CandidateView) => boolean) => candidates.filter((c) => c.applied_role === role && f(c)).length;
+  const split = (f: (c: CandidateView) => boolean) => `PM ${by("PM", f)} · SPM ${by("SPM", f)}`;
+  const all = () => true;
+  const scored = (c: CandidateView) => c.status === "scored" || c.status === "sent";
+  const attention = candidates.filter((c) => c.status === "needs_review" || c.status === "scoring_failed").length;
+  const processing = candidates.filter((c) => c.status === "processing").length;
+  const invite = (c: CandidateView) => scored(c) && c.decision === "invite";
+  const reject = (c: CandidateView) => scored(c) && c.decision === "reject";
+  const sent = candidates.filter((c) => c.status === "sent");
+  const failed = candidates.filter((c) => c.status !== "sent" && c.email_draft?.status === "failed").length;
+  const mumbai = (c: CandidateView) => c.location_flag === "mumbai" || c.location_flag === "relocating";
+  const nScored = candidates.filter(scored).length;
+  return (
+    <div className="overview">
+      <div className="panel tile">
+        <div className="label">CVs received</div>
+        <div className="value">{candidates.length}</div>
+        <div className="sub">{split(all)}</div>
+      </div>
+      <div className="panel tile">
+        <div className="label">Scored</div>
+        <div className="value">{nScored}</div>
+        {attention > 0 ? <div className="warn-line">⚠ {attention} need your attention</div>
+          : processing > 0 ? <div className="sub">{processing} processing</div>
+          : <div className="sub">All CVs processed</div>}
+      </div>
+      <div className="panel tile">
+        <div className="label">To invite</div>
+        <div className="value">{candidates.filter(invite).length}</div>
+        <div className="sub">{split(invite)}</div>
+      </div>
+      <div className="panel tile">
+        <div className="label">To reject</div>
+        <div className="value">{candidates.filter(reject).length}</div>
+        <div className="sub">{split(reject)}</div>
+      </div>
+      <div className="panel tile">
+        <div className="label">Emails sent</div>
+        <div className="value">{sent.length}<small>/ {nScored}</small></div>
+        {failed > 0 ? <div className="warn-line">⚠ {failed} failed to send</div>
+          : <div className="sub">{sent.filter((c) => c.decision === "invite").length} invites · {sent.filter((c) => c.decision === "reject").length} rejections</div>}
+        <div className="meter" role="img" aria-label={`${sent.length} of ${nScored} emails sent`}><span style={{ width: `${nScored ? (sent.length / nScored) * 100 : 0}%` }} /></div>
+      </div>
+      <div className="panel tile">
+        <div className="label">Mumbai or relocating</div>
+        <div className="value">{candidates.filter(mumbai).length}</div>
+        <div className="sub">{split(mumbai)}</div>
+      </div>
+    </div>
   );
 }
 
@@ -181,11 +240,11 @@ function AttentionRow({ c, run, busy }: { c: CandidateView; run: RunFn; busy: bo
   );
 }
 
-const BUCKETS: { key: Criterion["bucket"]; label: string; hint: string; color: string; field: "requirements_subtotal" | "pattern_hard_subtotal" | "pattern_soft_subtotal" | "trust_subtotal" }[] = [
-  { key: "requirements", label: "Role requirements", hint: "From the job description", color: "var(--b-req)", field: "requirements_subtotal" },
-  { key: "pattern_hard", label: "Arjun's pattern: track record", hint: "What his best hires had done", color: "var(--b-hard)", field: "pattern_hard_subtotal" },
-  { key: "pattern_soft", label: "Arjun's pattern: how they write", hint: "Judge the quoted phrases yourself", color: "var(--b-soft)", field: "pattern_soft_subtotal" },
-  { key: "trust", label: "Trust & ownership", hint: "Owns outcomes, including failures", color: "var(--b-trust)", field: "trust_subtotal" },
+const BUCKETS: { key: Criterion["bucket"]; label: string; short: string; hint: string; color: string; field: "requirements_subtotal" | "pattern_hard_subtotal" | "pattern_soft_subtotal" | "trust_subtotal" }[] = [
+  { key: "requirements", label: "Role requirements", short: "Requirements", hint: "From the job description", color: "var(--b-req)", field: "requirements_subtotal" },
+  { key: "pattern_hard", label: "Arjun's pattern: track record", short: "Track record", hint: "What his best hires had done", color: "var(--b-hard)", field: "pattern_hard_subtotal" },
+  { key: "pattern_soft", label: "Arjun's pattern: how they write", short: "How they write", hint: "Judge the quoted phrases yourself", color: "var(--b-soft)", field: "pattern_soft_subtotal" },
+  { key: "trust", label: "Trust & ownership", short: "Trust", hint: "Owns outcomes, including failures", color: "var(--b-trust)", field: "trust_subtotal" },
 ];
 
 function Dots({ n }: { n: number }) {
