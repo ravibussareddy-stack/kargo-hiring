@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:pii": "node --experimental-strip-types scripts/test-pii.ts"
+    "test:pii": "node --experimental-strip-types --no-warnings scripts/test-pii.ts",
+    "check": "node --env-file=.env.local --experimental-strip-types --no-warnings scripts/check-setup.ts",
+    "db:migrate": "node --env-file=.env.local --experimental-strip-types --no-warnings scripts/migrate.ts",
+    "fixtures": "node --experimental-strip-types --no-warnings scripts/make-fixtures.ts"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
@@ -23,8 +26,11 @@
   },
   "devDependencies": {
     "@types/node": "^24",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "pg": "^8.23.0",
     "typescript": "^5"
-  }
+  },
+  "type": "module"
 }

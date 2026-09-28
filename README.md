@@ -31,7 +31,9 @@ The dashboard is protected by HTTP Basic Auth (`proxy.ts`), because it shows can
 
 ### 1. Supabase
 1. Create a project at https://supabase.com.
-2. In **SQL Editor**, paste and run [`supabase/schema.sql`](supabase/schema.sql).
+2. Create the tables in one of two ways:
+   - Put the **Session pooler** connection string (Supabase → Connect) in `SUPABASE_DB_URL` and run `npm run db:migrate`.
+   - Or paste [`supabase/schema.sql`](supabase/schema.sql) into the **SQL Editor** and run it.
    - RLS is on with no policies, so the anon key can read nothing. All access goes through server code using the service role key.
    - The rubric is seeded automatically on first page load. The code source is `lib/rubricSeed.ts`.
 3. Copy the project URL, anon key and service role key from **Project Settings → API**.
@@ -48,6 +50,8 @@ Fill in `.env.local`, which is git-ignored. `.env.example` lists every variable.
 | `RESEND_FROM_ADDRESS` | A verified Resend sender, e.g. `Arjun Mehta <hiring@yourdomain>` |
 | `ALLOWED_RECIPIENT_DOMAINS` | Comma-separated. Test domain only |
 | `DASHBOARD_USER`, `DASHBOARD_PASSWORD` | Login for the dashboard. Required in production |
+
+Then run `npm run check`. It tests every key, the tables, that the anon key can't read personal details, a Gemini call, and the Resend sender domain.
 
 ### 3. Run locally
 ```bash
@@ -68,3 +72,5 @@ API routes set `maxDuration = 60`. The upload page processes one file at a time,
 - **Calibration examples** in the rubric are described without past hires' names, so employee names are never sent to the model.
 - **Rubric edits** apply to the next scoring run. Use **Re-score all** on `/rubric` to apply them to existing candidates.
 - **PII self-check:** `npm run test:pii`.
+- **Test CVs:** `npm run fixtures -- <test-domain>` writes 3 fictional CVs to `fixtures/` (git-ignored), with emails on that domain.
+- **Resend sender:** with the default `onboarding@resend.dev`, Resend only delivers to the email address your Resend account is registered with. To reach any other test address, verify a domain in Resend and use it in `RESEND_FROM_ADDRESS`.
