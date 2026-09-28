@@ -15,6 +15,13 @@ Name: Arvind K. Menon
 Email: arvind.menon@gmail.com   Phone: (022) 2345-6789 / 9876543210
 https://github.com/arvindm  Location: Bengaluru, open to relocate
 Worked 2016 - 2019 2020 at Menon & Sons.`,
+  bulletNotAddress: `Farhan Qureshi
+Email: fq@example.com   Phone: 99876 54321
+Location: Pune
+
+Senior Product Manager — Railyard, 2020 – present
+- Owned the carrier integration platform end to end.
+- Decided to stop building our own ERP connectors; I made the call, onboarding dropped from 6 weeks to 10 days.`,
   noName: `product manager with 5 years experience
 contact: someone@example.com`,
 };
@@ -31,5 +38,9 @@ for (const [label, text] of Object.entries(cvs)) {
   console.log(red);
   const expectOk = label !== "noName";
   if (guard.ok !== expectOk) { failed++; console.log("!! UNEXPECTED GUARD RESULT"); }
+  // Over-redaction check: work content must survive.
+  if (label === "bulletNotAddress" && !red.includes("Decided to stop building")) { failed++; console.log("!! BULLET WAS REDACTED AS AN ADDRESS"); }
+  if (label === "pipeHeader" && (red.includes("Sai Krupa") || !red.includes("Ran discovery"))) { failed++; console.log("!! ADDRESS HANDLING WRONG"); }
 }
+console.log(failed ? `\n${failed} FAILED` : "\nAll PII checks passed.");
 process.exit(failed ? 1 : 0);

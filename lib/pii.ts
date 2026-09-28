@@ -10,7 +10,6 @@ const URL_RE =
 const PHONE_CANDIDATE_RE = /(?:\+|\()?\d[\d\s().-]{7,}\d/g;
 const ADDRESS_HINT_RE =
   /\b(flat|apt|apartment|floor|wing|bldg|building|tower|road|rd\.?|street|st\.?|lane|marg|nagar|sector|society|chs|plot|house no|near|opp\.?|colony|layout|cross)\b/i;
-const PIN_RE = /\b\d{3}\s?\d{3}\b/;
 
 const NOT_A_NAME = /\b(resume|résumé|curriculum|vitae|cv|profile|summary|product|manager|engineer|contact|email|phone|mobile|address|linkedin|objective|experience)\b/i;
 const NAME_TOKEN = /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ.'’-]*$/;
@@ -71,11 +70,16 @@ function findPhones(text: string): string[] {
 }
 
 function findAddress(text: string): string | null {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 12);
+  // Header only, never a bullet or a sentence: addresses sit at the top of a CV.
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 8);
   for (const l of lines) {
-    const withoutContacts = l.replace(EMAIL_RE, "").replace(URL_RE, "");
-    if (ADDRESS_HINT_RE.test(withoutContacts) && (PIN_RE.test(withoutContacts) || /\d/.test(withoutContacts)) && withoutContacts.includes(",")) {
-      return withoutContacts.replace(/^[\s|•·,-]+|[\s|•·,-]+$/g, "");
+    if (/^[-•*–·]/.test(l) || l.length > 150) continue;
+    const labelled = l.match(/^(?:address|residence|home)\s*[:\-–]\s*(.+)$/i);
+    if (labelled) return labelled[1].trim();
+    for (const seg of l.split(/\s*[|•·]\s*/)) {
+      const cleaned = seg.replace(EMAIL_RE, "").replace(URL_RE, "").replace(/^[\s,-]+|[\s,-]+$/g, "");
+      // Needs a 6-digit Indian PIN code plus an address word or a comma.
+      if (/\b\d{3}\s?\d{3}\b/.test(cleaned) && !/\d{7,}/.test(cleaned.replace(/\s/g, "")) && (ADDRESS_HINT_RE.test(cleaned) || cleaned.includes(","))) return cleaned;
     }
   }
   return null;
