@@ -22,6 +22,11 @@ Location: Pune
 Senior Product Manager — Railyard, 2020 – present
 - Owned the carrier integration platform end to end.
 - Decided to stop building our own ERP connectors; I made the call, onboarding dropped from 6 weeks to 10 days.`,
+  gluedPdf: `Strategy Leader
+EDUCATION
+IMT Ghaziabad
+ROHAN MEHTARohan Mehta
+squad_1@example.com+91 98202 1134598202 11345 rohan-mehtalinkedin.com/in/rohan-mehta`,
   noName: `product manager with 5 years experience
 contact: someone@example.com`,
 };
@@ -37,6 +42,14 @@ for (const [label, text] of Object.entries(cvs)) {
   console.log("guard:", JSON.stringify(guard));
   console.log(red);
   const expectOk = label !== "noName";
+  if (label === "gluedPdf") {
+    const withHint = extractPii(text, "ROHAN MEHTA");
+    const r2 = redact(text, withHint);
+    const g2 = piiGuard([r2], withHint);
+    console.log("with heading hint:", JSON.stringify(g2), "\n" + r2);
+    if (!g2.ok || /98202|11345|rohan|mehta|linkedin/i.test(r2)) { failed++; console.log("!! GLUED PDF TEXT LEAKED"); }
+    if (pii.name !== "Rohan Mehta" || withHint.name !== "Rohan Mehta") { failed++; console.log("!! DOUBLED NAME NOT COLLAPSED:", pii.name, withHint.name); }
+  }
   if (guard.ok !== expectOk) { failed++; console.log("!! UNEXPECTED GUARD RESULT"); }
   // Over-redaction check: work content must survive.
   if (label === "bulletNotAddress" && !red.includes("Decided to stop building")) { failed++; console.log("!! BULLET WAS REDACTED AS AN ADDRESS"); }

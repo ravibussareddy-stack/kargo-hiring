@@ -1,6 +1,6 @@
 import "server-only";
 import mammoth from "mammoth";
-import { extractText, getDocumentProxy } from "unpdf";
+import { pdfTextAndName } from "./pdfText";
 
 export interface Extracted {
   text: string;
@@ -19,9 +19,8 @@ export async function extractCvText(fileName: string, buf: Buffer): Promise<Extr
     return { text: clean(text), heading: h ? h.replace(/<[^>]+>/g, "").trim() : null };
   }
   if (ext === "pdf") {
-    const pdf = await getDocumentProxy(new Uint8Array(buf));
-    const { text } = await extractText(pdf, { mergePages: true });
-    return { text: clean(text), heading: null };
+    const { text, heading } = await pdfTextAndName(new Uint8Array(buf));
+    return { text: clean(text), heading };
   }
   if (ext === "txt" || ext === "md") return { text: clean(buf.toString("utf8")), heading: null };
   throw new Error(`Unsupported file type ".${ext}". Use .pdf, .docx or .txt.`);

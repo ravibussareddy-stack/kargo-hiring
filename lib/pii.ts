@@ -5,17 +5,31 @@ export const REDACTED = "[REDACTED]";
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const URL_RE =
-  /\b(?:https?:\/\/|www\.)[^\s<>()|,;]+|\b(?:[a-z0-9-]+\.)*(?:linkedin\.com|github\.com|gitlab\.com|behance\.net|dribbble\.com|medium\.com|notion\.site|about\.me|substack\.com)\/[^\s<>()|,;]*/gi;
+  /\b(?:https?:\/\/|www\.)[^\s<>()|,;]+|(?:[a-z0-9-]+\.)*(?:linkedin\.com|github\.com|gitlab\.com|behance\.net|dribbble\.com|medium\.com|notion\.site|about\.me|substack\.com)\/[^\s<>()|,;]*/gi;
 // Candidate phone runs: digits with optional + ( ) space . - separators.
 const PHONE_CANDIDATE_RE = /(?:\+|\()?\d[\d\s().-]{7,}\d/g;
+// Indian mobile, matched without boundaries so glued duplicates ("…1134598202 11345") are both found.
+const IN_MOBILE_RE = /(?:\+?91[\s-]?)?(?<!\d)[6-9]\d{4}[\s-]?\d{5}(?!\d)|(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}/g;
 const ADDRESS_HINT_RE =
   /\b(flat|apt|apartment|floor|wing|bldg|building|tower|road|rd\.?|street|st\.?|lane|marg|nagar|sector|society|chs|plot|house no|near|opp\.?|colony|layout|cross)\b/i;
 
-const NOT_A_NAME = /\b(resume|résumé|curriculum|vitae|cv|profile|summary|product|manager|engineer|contact|email|phone|mobile|address|linkedin|objective|experience)\b/i;
+// Words that mark a line as a heading, title, institution or place — not a person's name.
+const NOT_A_NAME = new RegExp(
+  "\\b(" +
+    [
+      "resume", "résumé", "curriculum", "vitae", "cv", "profile", "summary", "synopsis", "objective", "contact", "email", "phone", "mobile", "address", "linkedin", "portfolio", "links",
+      "experience", "education", "skills", "competencies", "competencie", "projects", "project", "certifications", "achievements", "publications", "involvement", "interests", "languages", "qualifications", "internships", "awards", "work", "professional", "core", "technical", "academic", "personal", "research", "scholastic", "extracurricular", "sample", "assignments",
+      "product", "manager", "engineer", "lead", "leader", "head", "founder", "builder", "strategist", "strategy", "operations", "marketing", "growth", "associate", "analyst", "consultant", "director", "intern", "senior", "program", "venture", "advisory", "office",
+      "university", "college", "institute", "school", "academy", "iit", "iim", "imt", "nit", "bits", "ltd", "pvt", "inc", "llp", "technologies", "solutions", "services", "logistics", "labs",
+      "india", "delhi", "ncr", "mumbai", "bombay", "bangalore", "bengaluru", "pune", "chennai", "hyderabad", "kolkata", "gurgaon", "gurugram", "noida", "ghaziabad", "kharagpur", "aurangabad", "kalaburagi", "remote", "years",
+    ].join("|") +
+    ")\\b",
+  "i",
+);
 const NAME_TOKEN = /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ.'’-]*$/;
 
-function looksLikeName(line: string): boolean {
-  const cleaned = line.replace(/\s+/g, " ").trim();
+export function looksLikeName(line: string): boolean {
+  const cleaned = undouble(line.replace(/\s+/g, " ").trim());
   if (!cleaned || cleaned.length > 60 || NOT_A_NAME.test(cleaned)) return false;
   const tokens = cleaned.split(" ");
   if (tokens.length < 2 || tokens.length > 4) return false;
@@ -40,15 +54,21 @@ export function findName(text: string, headingHint?: string | null): string | nu
   if (headingHint && looksLikeName(headingHint)) return normalizeName(headingHint);
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 6);
   for (const raw of lines) {
-    // Header lines are often "Name | email | phone" — take the first segment.
-    const first = raw.split(/\s*[|•·,–—]\s*|\s{3,}/)[0];
+    // Header lines are often "Name | email | phone" or "Name email" — drop contacts, take the first segment.
+    const stripped = raw.replace(EMAIL_RE, "|").replace(URL_RE, "|").replace(PHONE_CANDIDATE_RE, "|");
+    const first = stripped.split(/\s*[|•·,–—]\s*|\s{3,}/)[0];
     if (looksLikeName(first)) return normalizeName(first);
   }
   return null;
 }
 
+/** PDFs sometimes stamp the name twice, glued: "ROHAN MEHTARohan Mehta" -> "ROHAN MEHTA". */
+function undouble(s: string) {
+  return s.match(/^(.+?)\s*\1$/i)?.[1] ?? s;
+}
+
 function normalizeName(n: string) {
-  const s = n.replace(/\s+/g, " ").trim();
+  const s = undouble(n.replace(/\s+/g, " ").trim());
   return s === s.toUpperCase() ? titleCase(s) : s;
 }
 
@@ -58,6 +78,7 @@ function digitsOf(s: string) {
 
 function findPhones(text: string): string[] {
   const out = new Set<string>();
+  for (const m of text.match(IN_MOBILE_RE) ?? []) out.add(m.trim());
   for (const m of text.match(PHONE_CANDIDATE_RE) ?? []) {
     const d = digitsOf(m);
     if (d.length < 10 || d.length > 13) continue;
@@ -152,10 +173,13 @@ export function piiGuard(texts: string[], pii: Pii): GuardResult {
   if (lower.includes(pii.name.toLowerCase())) return { ok: false, reason: "Full name still present in outgoing text." };
   for (const t of nameTokens(pii.name)) {
     if (new RegExp(`(?<![\\p{L}])${escapeRe(t)}(?![\\p{L}])`, "iu").test(hay)) return { ok: false, reason: `Name token "${t}" still present in outgoing text.` };
+    // Longer tokens are also checked inside words, to catch PDF text glued together ("MEHTARohan").
+    if (t.length >= 5 && lower.includes(t.toLowerCase())) return { ok: false, reason: `Name token "${t}" still present inside other text.` };
   }
   if (pii.email && lower.includes(pii.email.toLowerCase())) return { ok: false, reason: "Email still present." };
   if (new RegExp(EMAIL_RE.source).test(hay)) return { ok: false, reason: "An email address is still present." };
   for (const p of pii.phone) if (new RegExp(phoneRegex(p).source).test(hay)) return { ok: false, reason: "Phone number still present." };
+  if (new RegExp(IN_MOBILE_RE.source).test(hay)) return { ok: false, reason: "A mobile number is still present." };
   for (const u of pii.urls) if (hay.includes(u)) return { ok: false, reason: "Profile URL still present." };
   if (new RegExp(URL_RE.source, "i").test(hay)) return { ok: false, reason: "A profile URL is still present." };
   if (pii.address && hay.includes(pii.address)) return { ok: false, reason: "Street address still present." };
