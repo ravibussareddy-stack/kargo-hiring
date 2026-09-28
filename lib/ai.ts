@@ -153,7 +153,8 @@ ${cvRedacted}
     if (!v.body.includes("[NAME]")) return "body must contain [NAME]";
     if (/\[REDACTED\]/.test(v.subject + v.body)) return "must not contain [REDACTED]";
     if (!v.body.trim().endsWith("Founder, Kargo")) return `body must end with the signature "${SIGNATURE}"`;
-    if (type === "reject" && /\binterview(ed|ing|s)?\b|\b(our|the) (conversation|call|chat|meeting)\b|\bspeaking with you\b|\b(meeting|met) you\b/i.test(v.body))
+    // Block claims that WE interviewed/spoke with them; "your user interviews" etc. is fine.
+    if (type === "reject" && /\b(our|the|this|your) (interview|conversation|call|chat|meeting)s?\b(?! (with|of) (users|customers|operators))|\btime to (interview|speak|meet|chat)\b|\b(speaking|talking) (with|to) you\b|\b(meeting|met) you\b|\binterviewing you\b/i.test(v.body))
       return "rejection must not mention an interview, call or conversation: only the CV was reviewed";
     return null;
   });

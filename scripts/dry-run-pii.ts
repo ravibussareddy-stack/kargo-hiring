@@ -8,7 +8,7 @@ import { extractPii, redact, piiGuard, locationFlag } from "../lib/pii.ts";
 const [dir, outDir] = process.argv.slice(2);
 if (!dir) { console.error("Usage: npm run dry-run -- <cv-folder> [out-folder]"); process.exit(1); }
 if (outDir) mkdirSync(outDir, { recursive: true });
-const clean = (t: string) => t.replace(/\r\n?/g, "\n").replace(/[ \t ]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+const clean = (t: string) => t.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " ").replace(/[ \t ]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 
 let bad = 0;
 for (const f of readdirSync(dir).filter((f) => /\.(pdf|docx|txt)$/i.test(f)).sort()) {

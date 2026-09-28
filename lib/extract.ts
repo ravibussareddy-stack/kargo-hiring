@@ -27,5 +27,5 @@ export async function extractCvText(fileName: string, buf: Buffer): Promise<Extr
 }
 
 function clean(t: string) {
-  return t.replace(/\r\n?/g, "\n").replace(/[ \t ]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  return t.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " ").replace(/[ \t ]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }

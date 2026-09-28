@@ -1,7 +1,7 @@
 import RubricEditor from "@/components/RubricEditor";
 import SetupError from "@/components/SetupError";
 import { loadCriteria } from "@/lib/rubric";
-import { db, must } from "@/lib/supabase";
+import { db, selectAll } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +9,7 @@ export default async function Page() {
   try {
     const [criteria, ids] = await Promise.all([
       loadCriteria(),
-      db().from("candidates").select("id").in("status", ["scored", "scoring_failed"]).then((r) => (must(r) as { id: string }[]).map((x) => x.id)),
+      selectAll<{ id: string }>((a, b) => db().from("candidates").select("id").in("status", ["scored", "scoring_failed"]).order("id").range(a, b)).then((r) => r.map((x) => x.id)),
     ]);
     return <RubricEditor criteria={criteria} rescoreIds={ids} />;
   } catch (e) {

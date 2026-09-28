@@ -1,5 +1,5 @@
 import "server-only";
-import { db, must } from "./supabase";
+import { db, must, selectAll } from "./supabase";
 import { extractCvText } from "./extract";
 import { extractPii, locationFlag, piiGuard, redact } from "./pii";
 import { computeTotals, sanitizeScores } from "./rubricMath";
@@ -144,11 +144,13 @@ function autoDecision(rank: number | null, total: number, s: Settings): Decision
 export async function recompute(budgetMs = 40_000): Promise<{ pending: number; errors: string[] }> {
   const started = Date.now();
   const settings = await getSettings();
-  const candidates = must(
-    await db().from("candidates").select("id, applied_role, status, decision, decision_overridden, cv_redacted, pii").in("status", ["scored", "sent"]),
-  ) as CandidateRow[];
+  const candidates = await selectAll<CandidateRow>((a, b) =>
+    db().from("candidates").select("id, applied_role, status, decision, decision_overridden, cv_redacted, pii").in("status", ["scored", "sent"]).order("id").range(a, b),
+  );
   const byId = new Map(candidates.map((c) => [c.id, c]));
-  const results = must(await db().from("role_results").select("candidate_id, role, total, pattern_soft_subtotal, interview_probes, rank, soft_borderline_flag")) as RankRow[];
+  const results = await selectAll<RankRow>((a, b) =>
+    db().from("role_results").select("candidate_id, role, total, pattern_soft_subtotal, interview_probes, rank, soft_borderline_flag").order("candidate_id").order("role").range(a, b),
+  );
 
   const jobs: (() => Promise<void>)[] = [];
 
@@ -178,7 +180,7 @@ export async function recompute(budgetMs = 40_000): Promise<{ pending: number; e
     if (nonApplicantIds.length) must(await db().from("role_results").update({ rank: null, soft_borderline_flag: false }).eq("role", role).in("candidate_id", nonApplicantIds));
 
     // Decisions + drafts for the applied role.
-    const emails = must(await db().from("emails").select("candidate_id, type")) as { candidate_id: string; type: Decision }[];
+    const emails = await selectAll<{ candidate_id: string; type: Decision }>((a, b) => db().from("emails").select("candidate_id, type").order("candidate_id").range(a, b));
     const emailType = new Map(emails.map((e) => [e.candidate_id, e.type]));
     for (const [i, r] of ranked.entries()) {
       const c = byId.get(r.candidate_id)!;

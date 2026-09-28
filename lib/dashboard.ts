@@ -1,5 +1,5 @@
 import "server-only";
-import { db, must } from "./supabase";
+import { db, selectAll } from "./supabase";
 import { getSettings, loadCriteria, type Settings } from "./rubric";
 import { deliveryTarget, emailConfigured, finalEmail, testMode } from "./send";
 import type { Criterion, Decision, LocationFlag, Pii, Role } from "./types";
@@ -51,11 +51,11 @@ export async function loadDashboard(): Promise<DashboardData> {
   const [criteria, settings] = await Promise.all([loadCriteria(), getSettings()]);
   const cutoff = settings.invite_cutoff;
   const [cands, results, scores, emails] = await Promise.all([
-    db().from("candidates").select("id, created_at, applied_role, file_name, pii, location_flag, status, status_detail, decision, decision_overridden, sent_at").order("created_at", { ascending: false }),
-    db().from("role_results").select("*"),
-    db().from("scores").select("candidate_id, role, criterion_key, score, evidence, reason"),
-    db().from("emails").select("*"),
-  ]).then((rs) => rs.map((r) => must(r) as any[]));
+    selectAll<any>((a, b) => db().from("candidates").select("id, created_at, applied_role, file_name, pii, location_flag, status, status_detail, decision, decision_overridden, sent_at").order("created_at", { ascending: false }).order("id").range(a, b)),
+    selectAll<any>((a, b) => db().from("role_results").select("*").order("candidate_id").order("role").range(a, b)),
+    selectAll<any>((a, b) => db().from("scores").select("candidate_id, role, criterion_key, score, evidence, reason").order("id").range(a, b)),
+    selectAll<any>((a, b) => db().from("emails").select("*").order("id").range(a, b)),
+  ]);
 
   const candidates: CandidateView[] = cands.map((c) => {
     const pii = c.pii as Pii;
