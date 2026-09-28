@@ -10,9 +10,21 @@ export function allowedDomains(): string[] {
   return (process.env.ALLOWED_RECIPIENT_DOMAINS ?? "").split(",").map((d) => d.trim().toLowerCase()).filter(Boolean);
 }
 
+export function allowedRecipients(): string[] {
+  return (process.env.ALLOWED_RECIPIENTS ?? "").split(",").map((d) => normalizeAddress(d)).filter(Boolean);
+}
+
+/** Lowercases and drops a +tag, so "me+kavya@x.com" matches "me@x.com". */
+function normalizeAddress(a: string) {
+  const [local, domain] = a.trim().toLowerCase().split("@");
+  return domain ? `${local.split("+")[0]}@${domain}` : "";
+}
+
+/** Allowed only if the exact address (ignoring +tags) or its whole domain is allow-listed. */
 export function recipientAllowed(email: string | null): boolean {
-  const domain = email?.split("@")[1]?.toLowerCase();
-  return Boolean(domain && allowedDomains().includes(domain));
+  if (!email) return false;
+  const domain = email.split("@")[1]?.toLowerCase();
+  return allowedRecipients().includes(normalizeAddress(email)) || Boolean(domain && allowedDomains().includes(domain));
 }
 
 export function fillName(text: string, name: string | null) {
@@ -34,7 +46,7 @@ export async function sendCandidateEmail(candidateId: string) {
 
   const to = c.pii.email;
   if (!to) throw new Error("Candidate has no email address.");
-  if (!recipientAllowed(to)) throw new Error(`Blocked: ${to.split("@")[1]} is not in ALLOWED_RECIPIENT_DOMAINS (${allowedDomains().join(", ") || "none set"}).`);
+  if (!recipientAllowed(to)) throw new Error(`Blocked: ${to} is not in ALLOWED_RECIPIENTS / ALLOWED_RECIPIENT_DOMAINS.`);
   if (!c.pii.name) throw new Error("Candidate name unknown.");
 
   const { subject, body } = finalEmail(e, c.pii);

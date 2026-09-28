@@ -267,8 +267,7 @@ function EmailEditor({ c, data, run, busy }: { c: CandidateView; data: Dashboard
 
   const sent = c.status === "sent";
   const dirty = subject !== e.subject || body !== e.body;
-  const domain = c.email?.split("@")[1]?.toLowerCase();
-  const blocked = !c.email ? "No email address found in CV." : !data.allowedDomains.includes(domain ?? "") ? `Blocked: ${domain} is not in ALLOWED_RECIPIENT_DOMAINS.` : null;
+  const blocked = !c.email ? "No email address found in CV." : !c.recipient_allowed ? `Blocked: ${c.email} is not on the test allowlist (ALLOWED_RECIPIENTS / ALLOWED_RECIPIENT_DOMAINS).` : null;
   const flip = e.type === "invite" ? "reject" : "invite";
 
   return (

@@ -1,15 +1,17 @@
-// Writes 3 fictional test CVs to fixtures/ with emails at your test domain.
-// Usage: npm run fixtures -- <test-domain>   e.g. npm run fixtures -- example.org
+// Writes 3 fictional test CVs to fixtures/, all with +tagged variants of your test inbox.
+// Usage: npm run fixtures -- <test-address>   e.g. npm run fixtures -- me@example.org
 import { mkdirSync, writeFileSync } from "node:fs";
 
-const domain = process.argv[2];
-if (!domain) { console.error("Usage: npm run fixtures -- <test-domain>"); process.exit(1); }
+const address = process.argv[2];
+if (!address?.includes("@")) { console.error("Usage: npm run fixtures -- <test-address>"); process.exit(1); }
+const [local, domain] = address.split("@");
+const tagged = (tag: string) => `${local}+${tag}@${domain}`;
 const dir = new URL("../fixtures/", import.meta.url);
 mkdirSync(dir, { recursive: true });
 
 const cvs: Record<string, string> = {
   "test-kavya-pillai-PM.txt": `KAVYA PILLAI
-kavya.pillai.test@${domain} | +91 98111 22334 | linkedin.com/in/kavyapillai-test
+${tagged("kavya")} | +91 98111 22334 | linkedin.com/in/kavyapillai-test
 Thane, Maharashtra
 
 EXPERIENCE
@@ -27,7 +29,7 @@ EDUCATION
 B.Com, University of Mumbai`,
 
   "test-farhan-qureshi-SPM.txt": `Farhan Qureshi
-Email: farhan.qureshi.test@${domain}   Phone: 99876 54321
+Email: ${tagged("farhan")}   Phone: 99876 54321
 Location: Pune (open to relocate to Mumbai)
 
 Senior Product Manager — Railyard (Series B TMS platform), 2020 – present
@@ -43,7 +45,7 @@ Skills: SQL, APIs, EDI, stakeholder management`,
 
   "test-rahul-verma-PM.txt": `RAHUL VERMA
 Growth Leader · Product Visionary · Team Builder
-rahul.verma.test@${domain} | +91 90000 11223 | Bengaluru
+${tagged("rahul")} | +91 90000 11223 | Bengaluru
 
 SUMMARY
 Passionate, results-driven product professional with a strong track record of driving growth. Strong in OKRs, JTBD, Agile and Design Thinking.
@@ -60,4 +62,4 @@ Speaker at ProductCon 2023`,
 };
 
 for (const [name, text] of Object.entries(cvs)) writeFileSync(new URL(name, dir), text);
-console.log(`Wrote ${Object.keys(cvs).length} CVs to fixtures/ with emails @${domain}`);
+console.log(`Wrote ${Object.keys(cvs).length} CVs to fixtures/ with emails ${tagged("<name>")}`);

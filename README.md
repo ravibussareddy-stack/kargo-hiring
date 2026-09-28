@@ -22,7 +22,7 @@ The system recommends. Arjun decides.
    - **Borderline — soft signal**: the candidate is inside the cut-off, but would fall outside it if B3 were removed from everyone's score.
 6. **Send** (`lib/send.ts`):
    - Only after the confirmation dialog.
-   - Blocked unless the recipient's domain is in `ALLOWED_RECIPIENT_DOMAINS`, and refused if `[NAME]` or `[REDACTED]` is still in the email.
+   - Blocked unless the recipient is in `ALLOWED_RECIPIENTS` or `ALLOWED_RECIPIENT_DOMAINS`, and refused if `[NAME]` or `[REDACTED]` is still in the email.
    - An idempotency key means a double-click can't send twice.
 
 The dashboard is protected by HTTP Basic Auth (`proxy.ts`), because it shows candidate personal details and can send email.
@@ -45,10 +45,12 @@ Fill in `.env.local`, which is git-ignored. `.env.example` lists every variable.
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase → API |
 | `GEMINI_API_KEY` | https://aistudio.google.com/apikey |
-| `GEMINI_MODEL` | e.g. `gemini-2.5-flash`. Change without a code edit |
+| `GEMINI_API_KEYS_BACKUP` | Optional backup keys, comma-separated, tried in order |
+| `GEMINI_MODEL` | e.g. `gemini-3.8-flash`. Change without a code edit |
 | `RESEND_API_KEY` | Leave blank to disable sending |
 | `RESEND_FROM_ADDRESS` | A verified Resend sender, e.g. `Arjun Mehta <hiring@yourdomain>` |
-| `ALLOWED_RECIPIENT_DOMAINS` | Comma-separated. Test domain only |
+| `ALLOWED_RECIPIENTS` | Exact test addresses, comma-separated (`+tags` ignored) |
+| `ALLOWED_RECIPIENT_DOMAINS` | Whole test domains. Never a public domain like gmail.com |
 | `DASHBOARD_USER`, `DASHBOARD_PASSWORD` | Login for the dashboard. Required in production |
 
 Then run `npm run check`. It tests every key, the tables, that the anon key can't read personal details, a Gemini call, and the Resend sender domain.
@@ -72,5 +74,5 @@ API routes set `maxDuration = 60`. The upload page processes one file at a time,
 - **Calibration examples** in the rubric are described without past hires' names, so employee names are never sent to the model.
 - **Rubric edits** apply to the next scoring run. Use **Re-score all** on `/rubric` to apply them to existing candidates.
 - **PII self-check:** `npm run test:pii`.
-- **Test CVs:** `npm run fixtures -- <test-domain>` writes 3 fictional CVs to `fixtures/` (git-ignored), with emails on that domain.
+- **Test CVs:** `npm run fixtures -- <test-address>` writes 3 fictional CVs to `fixtures/` (git-ignored), with `+tag` variants of that inbox as their emails.
 - **Resend sender:** with the default `onboarding@resend.dev`, Resend only delivers to the email address your Resend account is registered with. To reach any other test address, verify a domain in Resend and use it in `RESEND_FROM_ADDRESS`.

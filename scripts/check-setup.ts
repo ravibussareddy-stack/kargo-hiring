@@ -11,7 +11,7 @@ const bad = (m: string) => { failures++; console.log(`  ✗ ${m}`); };
 const warn = (m: string) => console.log(`  ! ${m}`);
 
 console.log("\nEnvironment");
-for (const k of ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "GEMINI_API_KEY", "GEMINI_MODEL", "RESEND_FROM_ADDRESS", "ALLOWED_RECIPIENT_DOMAINS", "DASHBOARD_PASSWORD"]) {
+for (const k of ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "GEMINI_API_KEY", "GEMINI_MODEL", "RESEND_FROM_ADDRESS", "DASHBOARD_PASSWORD"]) {
   env[k] ? ok(k) : bad(`${k} is empty`);
 }
 env.RESEND_API_KEY ? ok("RESEND_API_KEY") : warn("RESEND_API_KEY empty — Send button will show 'Email not configured'");
@@ -30,7 +30,7 @@ if (env.NEXT_PUBLIC_SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY && env.NEXT_PU
   let tablesOk = true;
   for (const t of ["rubric_criteria", "candidates", "scores", "role_results", "emails", "settings"]) {
     const { error, count } = await svc.from(t).select("*", { count: "exact", head: true });
-    if (error) { tablesOk = false; bad(`table ${t}: ${error.message}`); } else ok(`table ${t} (${count} rows)`);
+    if (error || count === null) { tablesOk = false; bad(`table ${t}: ${error?.message || "missing"}`); } else ok(`table ${t} (${count} rows)`);
   }
   if (!tablesOk) warn("Run the schema: npm run db:migrate, or paste supabase/schema.sql into the SQL editor.");
   else {
@@ -54,15 +54,16 @@ if (env.NEXT_PUBLIC_SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY && env.NEXT_PU
 
 if (env.GEMINI_API_KEY) {
   console.log("\nGemini");
-  try {
-    const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+  const keys = [env.GEMINI_API_KEY, ...(env.GEMINI_API_KEYS_BACKUP ?? "").split(",")].map((k) => k?.trim()).filter(Boolean) as string[];
+  for (const [i, key] of keys.entries()) try {
+    const ai = new GoogleGenAI({ apiKey: key });
     const r = await ai.models.generateContent({
-      model: env.GEMINI_MODEL || "gemini-2.5-flash",
+      model: env.GEMINI_MODEL || "gemini-3.8-flash",
       contents: 'Return {"ok": true}',
       config: { temperature: 0, responseMimeType: "application/json" },
     });
-    JSON.parse(r.text ?? "").ok ? ok(`${env.GEMINI_MODEL} responds with JSON`) : bad(`unexpected reply: ${r.text}`);
-  } catch (e) { bad(`Gemini: ${(e as Error).message.slice(0, 200)}`); }
+    JSON.parse(r.text ?? "").ok ? ok(`key #${i + 1}: ${env.GEMINI_MODEL} responds with JSON`) : bad(`key #${i + 1}: unexpected reply: ${r.text}`);
+  } catch (e) { bad(`key #${i + 1}: ${(e as Error).message.slice(0, 200)}`); }
 }
 
 if (env.RESEND_API_KEY) {
@@ -79,7 +80,8 @@ if (env.RESEND_API_KEY) {
     else if (fromDomain && !verified.includes(fromDomain)) bad(`sender domain ${fromDomain} is not verified in Resend (verified: ${verified.join(", ") || "none"})`);
     else ok(`sender domain ${fromDomain} verified`);
   }
-  console.log(`  allowed recipient domains: ${env.ALLOWED_RECIPIENT_DOMAINS || "(none — every send is blocked)"}`);
+  console.log(`  allowed recipients: ${env.ALLOWED_RECIPIENTS || "-"} | allowed domains: ${env.ALLOWED_RECIPIENT_DOMAINS || "-"}`);
+  if (!env.ALLOWED_RECIPIENTS && !env.ALLOWED_RECIPIENT_DOMAINS) warn("No allowlist set — every send is blocked.");
 }
 
 console.log(failures ? `\n${failures} problem(s).` : "\nAll good.");

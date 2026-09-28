@@ -1,7 +1,7 @@
 import "server-only";
 import { db, must } from "./supabase";
 import { getCutoff, loadCriteria } from "./rubric";
-import { emailConfigured, allowedDomains, finalEmail } from "./send";
+import { emailConfigured, finalEmail, recipientAllowed } from "./send";
 import type { Criterion, Decision, LocationFlag, Pii, Role } from "./types";
 
 export type RoleResult = {
@@ -33,6 +33,7 @@ export type CandidateView = {
   decision_overridden: boolean;
   sent_at: string | null;
   results: Partial<Record<Role, RoleResult>>;
+  recipient_allowed: boolean;
   email_draft: { type: Decision; subject: string; body: string; status: string; last_error: string | null } | null;
 };
 
@@ -41,7 +42,6 @@ export type DashboardData = {
   criteria: Criterion[];
   cutoff: number;
   emailConfigured: boolean;
-  allowedDomains: string[];
 };
 
 export async function loadDashboard(): Promise<DashboardData> {
@@ -83,8 +83,9 @@ export async function loadDashboard(): Promise<DashboardData> {
       decision_overridden: c.decision_overridden,
       sent_at: c.sent_at,
       results: res,
+      recipient_allowed: recipientAllowed(pii.email),
       email_draft: e ? { type: e.type, ...finalEmail(e, pii), status: e.status, last_error: e.last_error } : null,
     };
   });
-  return { candidates, criteria, cutoff, emailConfigured: emailConfigured(), allowedDomains: allowedDomains() };
+  return { candidates, criteria, cutoff, emailConfigured: emailConfigured() };
 }
