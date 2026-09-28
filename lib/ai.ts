@@ -136,7 +136,8 @@ export async function draftEmail(cvRedacted: string, role: Role, type: Decision)
       ? `an INTERVIEW INVITE. Short and warm. Propose a 30-minute conversation and ask them to reply with 3 time slots that work for them in the next week.`
       : `a REJECTION. Warm, specific and respectful. Thank them for their time. No generic filler ("we received many strong applications"), no false promises ("we'll keep your CV on file", "future openings").`;
   const prompt = `Write ${brief}
-The candidate applied for the ${ROLE_NAME[role]} role at Kargo (Series A logistics SaaS, Mumbai). The email is from the founder, Arjun Mehta.
+The candidate applied for the ${ROLE_NAME[role]} role at Kargo (Series A logistics SaaS, Mumbai) by sending a CV. The email is from the founder, Arjun Mehta.
+- There has been NO interview, call, meeting or conversation with them. Only their CV has been read.
 - Reference ONE specific, real thing from their CV below (a project, result or experience) — do not invent anything.
 - Address them with the literal placeholder [NAME] (e.g. "Hi [NAME],"). Never write any other name for them.
 - Never write the token [REDACTED].
@@ -152,6 +153,8 @@ ${cvRedacted}
     if (!v.body.includes("[NAME]")) return "body must contain [NAME]";
     if (/\[REDACTED\]/.test(v.subject + v.body)) return "must not contain [REDACTED]";
     if (!v.body.trim().endsWith("Founder, Kargo")) return `body must end with the signature "${SIGNATURE}"`;
+    if (type === "reject" && /\binterview(ed|ing|s)?\b|\b(our|the) (conversation|call|chat|meeting)\b|\bspeaking with you\b|\b(meeting|met) you\b/i.test(v.body))
+      return "rejection must not mention an interview, call or conversation: only the CV was reviewed";
     return null;
   });
 }

@@ -5,6 +5,8 @@ import type { Role } from "@/lib/types";
 
 type Item = { id: number; file: File; role: Role; stage: string; tone: "" | "good" | "bad" | "warn"; detail?: string };
 const ACCEPT = ".pdf,.docx,.txt";
+const PAUSE_BETWEEN_FILES_MS = 3000; // breathing room for Gemini rate limits on large batches
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default function UploadPage() {
   const [items, setItems] = useState<Item[]>([]);
@@ -28,7 +30,11 @@ export default function UploadPage() {
     const queue = items.filter((x) => x.stage === "Ready");
     let anyScored = false;
     // One file at a time: keeps each request well inside serverless time limits.
-    for (const it of queue) {
+    for (const [n, it] of queue.entries()) {
+      if (n > 0) {
+        patch(it.id, { stage: "Queued — pausing between files…" });
+        await sleep(PAUSE_BETWEEN_FILES_MS);
+      }
       try {
         patch(it.id, { stage: "Uploading & removing personal details…", tone: "" });
         const fd = new FormData();
@@ -66,6 +72,7 @@ export default function UploadPage() {
   }
 
   const ready = items.filter((x) => x.stage === "Ready").length;
+  const doneCount = items.filter((x) => !["Ready", "Queued — pausing between files…"].includes(x.stage) && !x.stage.endsWith("…")).length;
   return (
     <>
       <h1>Upload CVs</h1>
@@ -86,7 +93,13 @@ export default function UploadPage() {
           <option value="PM">PM</option>
           <option value="SPM">SPM</option>
         </select>
+        {items.length > 0 && (
+          <button className="small" disabled={running} onClick={() => setItems((xs) => xs.map((x) => (x.stage === "Ready" ? { ...x, role: defaultRole } : x)))}>
+            Set all to {defaultRole}
+          </button>
+        )}
         <span className="spacer" />
+        {running && <span className="small muted">{doneCount} of {items.length} processed</span>}
         <button className="primary" disabled={running || !ready} onClick={start}>
           {running ? "Processing…" : `Process ${ready} file${ready === 1 ? "" : "s"}`}
         </button>

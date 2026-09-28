@@ -18,6 +18,7 @@ export default function Dashboard({ data }: { data: DashboardData }) {
   const [tab, setTab] = useState<Role>("PM");
   const [everyone, setEveryone] = useState(false);
   const [cutoff, setCutoff] = useState(String(data.cutoff));
+  const [minScore, setMinScore] = useState(String(data.settings.min_invite_score));
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -43,7 +44,10 @@ export default function Dashboard({ data }: { data: DashboardData }) {
     [data.candidates, tab, everyone],
   );
   const criteria = data.criteria.filter((c) => c.role === tab);
-  const applicantsScored = list.filter((c) => c.applied_role === tab).length;
+  const lastInviteIdx = list.reduce((acc, c, i) => {
+    const r = c.results[tab]!;
+    return c.applied_role === tab && r.rank !== null && r.rank <= data.cutoff && r.total >= data.settings.min_invite_score ? i : acc;
+  }, -1);
 
   return (
     <>
@@ -63,10 +67,12 @@ export default function Dashboard({ data }: { data: DashboardData }) {
         <label className="row small">
           Invite top
           <input style={{ width: 56 }} type="number" min={0} value={cutoff} onChange={(e) => setCutoff(e.target.value)} />
+          scoring at least
+          <input style={{ width: 56 }} type="number" min={0} max={100} value={minScore} onChange={(e) => setMinScore(e.target.value)} />
           <button
-            disabled={!!busy || cutoff === String(data.cutoff)}
-            onClick={() => run("Updating cut-off and redrafting…", async () => {
-              await api("/api/settings", "PUT", { invite_cutoff: Number(cutoff) });
+            disabled={!!busy || (cutoff === String(data.cutoff) && minScore === String(data.settings.min_invite_score))}
+            onClick={() => run("Updating invite rule and redrafting…", async () => {
+              await api("/api/settings", "PUT", { invite_cutoff: Number(cutoff), min_invite_score: Number(minScore) });
               const errs = await runRecompute();
               if (errs.length) throw new Error(errs.join("\n"));
             })}
@@ -78,6 +84,8 @@ export default function Dashboard({ data }: { data: DashboardData }) {
 
       {busy && <div className="notice">{busy}</div>}
       {err && <div className="error">{err}</div>}
+      {data.testMode && <div className="notice small"><b>Test mode:</b> every email is delivered to the test inbox, with the intended recipient shown at the top.</div>}
+      {!data.settings.min_score_migrated && <div className="notice small">Minimum invite score is using the default (50). Run <code>supabase/migrations/002_min_invite_score.sql</code> to make it editable.</div>}
       {!data.emailConfigured && <div className="notice small">Email not configured: set RESEND_API_KEY and RESEND_FROM_ADDRESS to enable sending.</div>}
 
       {attention.length > 0 && <Attention items={attention} run={run} busy={!!busy} />}
@@ -85,8 +93,8 @@ export default function Dashboard({ data }: { data: DashboardData }) {
       {list.length === 0 && <p className="muted">No scored candidates yet. <a href="/upload">Upload CVs</a>.</p>}
       {list.map((c, i) => (
         <div key={c.id}>
-          {!everyone && i === data.cutoff && applicantsScored > data.cutoff && (
-            <div className="cutline"><span>Invite cut-off (top {data.cutoff})</span></div>
+          {!everyone && i === lastInviteIdx + 1 && (
+            <div className="cutline"><span>Invite line: top {data.cutoff} scoring ≥ {data.settings.min_invite_score}</span></div>
           )}
           <Card c={c} role={tab} criteria={criteria} data={data} run={run} busy={!!busy} position={i + 1} />
         </div>
@@ -267,14 +275,15 @@ function EmailEditor({ c, data, run, busy }: { c: CandidateView; data: Dashboard
 
   const sent = c.status === "sent";
   const dirty = subject !== e.subject || body !== e.body;
-  const blocked = !c.email ? "No email address found in CV." : !c.recipient_allowed ? `Blocked: ${c.email} is not on the test allowlist (ALLOWED_RECIPIENTS / ALLOWED_RECIPIENT_DOMAINS).` : null;
+  const blocked = c.delivery.blocked;
+  const toLabel = data.testMode ? `${c.delivery.to} (test inbox — candidate: ${c.email ?? "none"})` : c.email ?? "—";
   const flip = e.type === "invite" ? "reject" : "invite";
 
   return (
     <>
       <h3>Email — {e.type === "invite" ? "interview invite" : "rejection"} (for {c.applied_role})</h3>
       <div className="row small" style={{ marginBottom: 6 }}>
-        To: <b>{c.email ?? "—"}</b>
+        To: <b>{toLabel}</b>
         <span className="spacer" />
         {!sent && (
           <button
@@ -307,7 +316,7 @@ function EmailEditor({ c, data, run, busy }: { c: CandidateView; data: Dashboard
         <div className="dialog-back" onClick={() => setConfirming(false)}>
           <div className="panel dialog" onClick={(ev) => ev.stopPropagation()}>
             <h2 style={{ marginTop: 0 }}>Send this email?</h2>
-            <p><span className="muted">To:</span> <b>{c.email}</b></p>
+            <p><span className="muted">To:</span> <b>{toLabel}</b></p>
             <p><span className="muted">Subject:</span> {e.subject}</p>
             <p><span className="muted">First line:</span> {e.body.split("\n").find((l) => l.trim())}</p>
             <div className="row">

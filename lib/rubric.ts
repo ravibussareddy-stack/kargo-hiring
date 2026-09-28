@@ -32,8 +32,15 @@ export async function loadValidatedCriteria(role: Role): Promise<Criterion[]> {
   return criteria;
 }
 
-export async function getCutoff(): Promise<number> {
+export type Settings = { invite_cutoff: number; min_invite_score: number; min_score_migrated: boolean };
+
+export async function getSettings(): Promise<Settings> {
   await ensureSeeded();
-  const row = must(await db().from("settings").select("invite_cutoff").eq("id", 1).single()) as { invite_cutoff: number };
-  return row.invite_cutoff;
+  // select("*") so a DB without the min_invite_score column (migration 002) still works, using 50.
+  const row = must(await db().from("settings").select("*").eq("id", 1).single()) as { invite_cutoff: number; min_invite_score?: number };
+  return {
+    invite_cutoff: row.invite_cutoff,
+    min_invite_score: row.min_invite_score === undefined ? 50 : Number(row.min_invite_score),
+    min_score_migrated: row.min_invite_score !== undefined,
+  };
 }

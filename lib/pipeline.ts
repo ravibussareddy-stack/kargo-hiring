@@ -3,7 +3,7 @@ import { db, must } from "./supabase";
 import { extractCvText } from "./extract";
 import { extractPii, locationFlag, piiGuard, redact } from "./pii";
 import { computeTotals, sanitizeScores } from "./rubricMath";
-import { getCutoff, loadValidatedCriteria } from "./rubric";
+import { getSettings, loadValidatedCriteria, type Settings } from "./rubric";
 import { draftEmail, scoreRole, writeBrief, writeProbes } from "./ai";
 import { ROLES, type CriterionScore, type Decision, type Pii, type Role } from "./types";
 
@@ -131,8 +131,9 @@ type RankRow = {
   soft_borderline_flag: boolean;
 };
 
-function autoDecision(rank: number | null, cutoff: number): Decision {
-  return rank !== null && rank <= cutoff ? "invite" : "reject";
+/** Invite = top N for the applied role AND at or above the minimum score. */
+function autoDecision(rank: number | null, total: number, s: Settings): Decision {
+  return rank !== null && rank <= s.invite_cutoff && total >= s.min_invite_score ? "invite" : "reject";
 }
 
 /**
@@ -142,7 +143,7 @@ function autoDecision(rank: number | null, cutoff: number): Decision {
  */
 export async function recompute(budgetMs = 40_000): Promise<{ pending: number; errors: string[] }> {
   const started = Date.now();
-  const cutoff = await getCutoff();
+  const settings = await getSettings();
   const candidates = must(
     await db().from("candidates").select("id, applied_role, status, decision, decision_overridden, cv_redacted, pii").in("status", ["scored", "sent"]),
   ) as CandidateRow[];
@@ -156,18 +157,21 @@ export async function recompute(budgetMs = 40_000): Promise<{ pending: number; e
       .filter((r) => r.role === role && byId.get(r.candidate_id)?.applied_role === role)
       .map((r) => ({ ...r, total: Number(r.total), pattern_soft_subtotal: Number(r.pattern_soft_subtotal) }));
     const ranked = [...applicants].sort((a, b) => b.total - a.total);
-    // Borderline: invited now, but not if B3 (soft) were removed from everyone.
+    // Borderline: invited now, but not if B3 (soft) were removed from everyone —
+    // either they drop out of the top N or below the minimum score.
     const withoutSoft = [...applicants].sort((a, b) => b.total - b.pattern_soft_subtotal - (a.total - a.pattern_soft_subtotal));
-    const topWithoutSoft = new Set(withoutSoft.slice(0, cutoff).map((r) => r.candidate_id));
+    const rankWithoutSoft = new Map(withoutSoft.map((r, i) => [r.candidate_id, i + 1]));
 
     for (const [i, r] of ranked.entries()) {
       const rank = i + 1;
-      const borderline = rank <= cutoff && !topWithoutSoft.has(r.candidate_id);
+      const borderline =
+        autoDecision(rank, r.total, settings) === "invite" &&
+        autoDecision(rankWithoutSoft.get(r.candidate_id)!, r.total - r.pattern_soft_subtotal, settings) === "reject";
       if (r.rank !== rank || r.soft_borderline_flag !== borderline) {
         must(await db().from("role_results").update({ rank, soft_borderline_flag: borderline }).eq("candidate_id", r.candidate_id).eq("role", role));
       }
       const c = byId.get(r.candidate_id)!;
-      if (rank <= cutoff && !r.interview_probes) jobs.push(() => generateProbes(c, role));
+      if (autoDecision(rank, r.total, settings) === "invite" && !r.interview_probes) jobs.push(() => generateProbes(c, role));
     }
     // Non-applicants carry no rank for this role.
     const nonApplicantIds = results.filter((r) => r.role === role && byId.get(r.candidate_id)?.applied_role !== role && r.rank !== null).map((r) => r.candidate_id);
@@ -179,7 +183,7 @@ export async function recompute(budgetMs = 40_000): Promise<{ pending: number; e
     for (const [i, r] of ranked.entries()) {
       const c = byId.get(r.candidate_id)!;
       if (c.status === "sent") continue;
-      const want = c.decision_overridden && c.decision ? c.decision : autoDecision(i + 1, cutoff);
+      const want = c.decision_overridden && c.decision ? c.decision : autoDecision(i + 1, r.total, settings);
       if (c.decision !== want) {
         must(await db().from("candidates").update({ decision: want }).eq("id", c.id));
         c.decision = want;
@@ -232,8 +236,8 @@ async function generateDraft(c: CandidateRow, type: Decision) {
 export async function setDecision(id: string, decision: Decision) {
   const c = await getCandidate(id);
   if (c.status === "sent") throw new Error("Email already sent.");
-  const rr = must(await db().from("role_results").select("rank").eq("candidate_id", id).eq("role", c.applied_role).single()) as { rank: number | null };
-  const overridden = decision !== autoDecision(rr.rank, await getCutoff());
+  const rr = must(await db().from("role_results").select("rank, total").eq("candidate_id", id).eq("role", c.applied_role).single()) as { rank: number | null; total: number };
+  const overridden = decision !== autoDecision(rr.rank, Number(rr.total), await getSettings());
   must(await db().from("candidates").update({ decision, decision_overridden: overridden }).eq("id", id));
   await generateDraft({ ...c, decision }, decision);
 }

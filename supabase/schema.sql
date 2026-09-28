@@ -75,9 +75,12 @@ create table if not exists emails (
 
 create table if not exists settings (
   id int primary key default 1 check (id = 1),
-  invite_cutoff int not null default 5 check (invite_cutoff >= 0)
+  invite_cutoff int not null default 5 check (invite_cutoff >= 0),
+  min_invite_score numeric not null default 50 check (min_invite_score between 0 and 100)
 );
 insert into settings (id, invite_cutoff) values (1, 5) on conflict (id) do nothing;
+-- for databases created before this column existed:
+alter table settings add column if not exists min_invite_score numeric not null default 50;
 
 alter table rubric_criteria enable row level security;
 alter table candidates enable row level security;

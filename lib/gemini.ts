@@ -22,6 +22,16 @@ function isRetryable(e: unknown) {
     /RESOURCE_EXHAUSTED|quota|API key not valid|PERMISSION_DENIED|UNAVAILABLE|high demand/i.test(msg);
 }
 
+// Minimum gap between Gemini call starts (per server instance), to stay under rate limits.
+let nextSlot = 0;
+async function throttle() {
+  const gap = Number(process.env.GEMINI_MIN_INTERVAL_MS ?? 1000);
+  const now = Date.now();
+  const wait = Math.max(0, nextSlot - now);
+  nextSlot = Math.max(now, nextSlot) + gap;
+  if (wait) await new Promise((r) => setTimeout(r, wait));
+}
+
 type GenArgs = Parameters<GoogleGenAI["models"]["generateContent"]>[0];
 
 async function generateWithFallback(args: GenArgs) {
@@ -34,6 +44,7 @@ async function generateWithFallback(args: GenArgs) {
     const key = keys[idx];
     if (!clients.has(key)) clients.set(key, new GoogleGenAI({ apiKey: key }));
     try {
+      await throttle();
       const res = await clients.get(key)!.models.generateContent(args);
       preferred = idx;
       return res;

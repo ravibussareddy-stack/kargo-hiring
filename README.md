@@ -17,7 +17,7 @@ The system recommends. Arjun decides.
    - Totals and subtotals are worked out in code (`lib/rubricMath.ts`). A score above 2 with no evidence is forced to 0.
 4. **Fit brief**: 2 lines on fit and 2 on risk, per role. The top N applicants per role also get 3 interview questions.
 5. **Ranking and drafts** (`recompute` in `lib/pipeline.ts`):
-   - Applicants are ranked per role. The top N (the cut-off, default 5, set on the dashboard) get an invite draft, everyone else a rejection draft.
+   - Applicants are ranked per role. An invite draft goes to the top N (default 5) who also score at least the minimum (default 50). Both are set on the dashboard. Everyone else gets a rejection draft.
    - This re-runs after every upload, so ranks and drafts stay current. Candidates Arjun has manually switched, or already emailed, are left alone.
    - **Borderline — soft signal**: the candidate is inside the cut-off, but would fall outside it if B3 were removed from everyone's score.
 6. **Send** (`lib/send.ts`):
@@ -51,7 +51,11 @@ Fill in `.env.local`, which is git-ignored. `.env.example` lists every variable.
 | `RESEND_FROM_ADDRESS` | A verified Resend sender, e.g. `Arjun Mehta <hiring@yourdomain>` |
 | `ALLOWED_RECIPIENTS` | Exact test addresses, comma-separated (`+tags` ignored) |
 | `ALLOWED_RECIPIENT_DOMAINS` | Whole test domains. Never a public domain like gmail.com |
+| `TEST_MODE` | `true`: every send goes to the first `ALLOWED_RECIPIENTS` address, with a "Would have gone to: …" line at the top |
+| `GEMINI_MIN_INTERVAL_MS` | Minimum gap between Gemini calls. Default 1000 |
 | `DASHBOARD_USER`, `DASHBOARD_PASSWORD` | Login for the dashboard. Required in production |
+
+If your database was created before the minimum-score setting existed, also run `supabase/migrations/002_min_invite_score.sql`.
 
 Then run `npm run check`. It tests every key, the tables, that the anon key can't read personal details, a Gemini call, and the Resend sender domain.
 

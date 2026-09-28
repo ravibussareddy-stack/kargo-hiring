@@ -1,7 +1,7 @@
 import "server-only";
 import { db, must } from "./supabase";
-import { getCutoff, loadCriteria } from "./rubric";
-import { emailConfigured, finalEmail, recipientAllowed } from "./send";
+import { getSettings, loadCriteria, type Settings } from "./rubric";
+import { deliveryTarget, emailConfigured, finalEmail, testMode } from "./send";
 import type { Criterion, Decision, LocationFlag, Pii, Role } from "./types";
 
 export type RoleResult = {
@@ -33,7 +33,8 @@ export type CandidateView = {
   decision_overridden: boolean;
   sent_at: string | null;
   results: Partial<Record<Role, RoleResult>>;
-  recipient_allowed: boolean;
+  /** Where Send will actually deliver (test inbox in TEST_MODE), or why it's blocked. */
+  delivery: { to: string | null; blocked: string | null };
   email_draft: { type: Decision; subject: string; body: string; status: string; last_error: string | null } | null;
 };
 
@@ -41,11 +42,14 @@ export type DashboardData = {
   candidates: CandidateView[];
   criteria: Criterion[];
   cutoff: number;
+  settings: Settings;
   emailConfigured: boolean;
+  testMode: boolean;
 };
 
 export async function loadDashboard(): Promise<DashboardData> {
-  const [criteria, cutoff] = await Promise.all([loadCriteria(), getCutoff()]);
+  const [criteria, settings] = await Promise.all([loadCriteria(), getSettings()]);
+  const cutoff = settings.invite_cutoff;
   const [cands, results, scores, emails] = await Promise.all([
     db().from("candidates").select("id, created_at, applied_role, file_name, pii, location_flag, status, status_detail, decision, decision_overridden, sent_at").order("created_at", { ascending: false }),
     db().from("role_results").select("*"),
@@ -83,9 +87,9 @@ export async function loadDashboard(): Promise<DashboardData> {
       decision_overridden: c.decision_overridden,
       sent_at: c.sent_at,
       results: res,
-      recipient_allowed: recipientAllowed(pii.email),
+      delivery: deliveryTarget(pii.email),
       email_draft: e ? { type: e.type, ...finalEmail(e, pii), status: e.status, last_error: e.last_error } : null,
     };
   });
-  return { candidates, criteria, cutoff, emailConfigured: emailConfigured() };
+  return { candidates, criteria, cutoff, settings, emailConfigured: emailConfigured(), testMode: testMode() };
 }

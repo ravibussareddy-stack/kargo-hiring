@@ -10,6 +10,24 @@ export function allowedDomains(): string[] {
   return (process.env.ALLOWED_RECIPIENT_DOMAINS ?? "").split(",").map((d) => d.trim().toLowerCase()).filter(Boolean);
 }
 
+export const testMode = () => /^(1|true|yes|on)$/i.test(process.env.TEST_MODE ?? "");
+
+/** In TEST_MODE every email goes here: the first ALLOWED_RECIPIENTS address. */
+export function testInbox(): string | null {
+  return (process.env.ALLOWED_RECIPIENTS ?? "").split(",").map((a) => a.trim()).find((a) => a.includes("@")) ?? null;
+}
+
+/** Where a candidate's email will actually be delivered, or why it can't be. */
+export function deliveryTarget(candidateEmail: string | null): { to: string | null; blocked: string | null } {
+  if (testMode()) {
+    const inbox = testInbox();
+    return inbox ? { to: inbox, blocked: null } : { to: null, blocked: "TEST_MODE is on but ALLOWED_RECIPIENTS is empty." };
+  }
+  if (!candidateEmail) return { to: null, blocked: "No email address found in CV." };
+  if (!recipientAllowed(candidateEmail)) return { to: null, blocked: `Blocked: ${candidateEmail} is not on the allowlist (ALLOWED_RECIPIENTS / ALLOWED_RECIPIENT_DOMAINS).` };
+  return { to: candidateEmail, blocked: null };
+}
+
 export function allowedRecipients(): string[] {
   return (process.env.ALLOWED_RECIPIENTS ?? "").split(",").map((d) => normalizeAddress(d)).filter(Boolean);
 }
@@ -44,13 +62,15 @@ export async function sendCandidateEmail(candidateId: string) {
   const e = must(await db().from("emails").select("*").eq("candidate_id", candidateId).single()) as EmailRow;
   if (c.status === "sent" || e.status === "sent") throw new Error("Already sent.");
 
-  const to = c.pii.email;
-  if (!to) throw new Error("Candidate has no email address.");
-  if (!recipientAllowed(to)) throw new Error(`Blocked: ${to} is not in ALLOWED_RECIPIENTS / ALLOWED_RECIPIENT_DOMAINS.`);
+  const { to, blocked } = deliveryTarget(c.pii.email);
+  if (!to) throw new Error(blocked!);
+  if (!recipientAllowed(to)) throw new Error(`Blocked: ${to} is not on the allowlist.`); // belt and braces, incl. test mode
   if (!c.pii.name) throw new Error("Candidate name unknown.");
 
-  const { subject, body } = finalEmail(e, c.pii);
-  if (/\[NAME\]|\[REDACTED\]/.test(subject + body)) throw new Error("Refusing to send: [NAME] or [REDACTED] still present.");
+  const final = finalEmail(e, c.pii);
+  if (/\[NAME\]|\[REDACTED\]/.test(final.subject + final.body)) throw new Error("Refusing to send: [NAME] or [REDACTED] still present.");
+  const subject = testMode() ? `[TEST] ${final.subject}` : final.subject;
+  const body = testMode() ? `[TEST MODE] Would have gone to: ${c.pii.email ?? "(no email in CV)"}\n\n${final.body}` : final.body;
 
   const resend = new Resend(process.env.RESEND_API_KEY);
   const { data, error } = await resend.emails.send(
