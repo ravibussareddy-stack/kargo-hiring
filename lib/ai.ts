@@ -97,6 +97,7 @@ const BriefSchema = z.object({
 export async function writeBrief(cvRedacted: string, role: Role, criteria: Criterion[], scores: CriterionScore[]): Promise<string> {
   const prompt = `Write a 4-line fit brief for a founder deciding on this candidate for the ${ROLE_NAME[role]} role. ${CONTEXT}
 Plain, specific language. Each line under 30 words. Cite criteria by name. No filler.
+Refer to the candidate only as "they" or "the candidate" — never he/she/his/her. Do not infer gender, age, region or background.
 
 PER-CRITERION SCORES:
 ${scoreLines(criteria, scores)}
@@ -113,7 +114,7 @@ const ProbesSchema = z.object({ probes: z.array(z.string()).length(3) });
 
 export async function writeProbes(cvRedacted: string, role: Role, criteria: Criterion[], scores: CriterionScore[]): Promise<string[]> {
   const prompt = `Write 3 interview questions for this ${ROLE_NAME[role]} candidate. ${CONTEXT}
-Each question must test one of the weakest or least-evidenced criteria below, reference something specific in the CV where possible, and ask for a concrete example (what happened, what they personally did, the outcome). Name the criterion key in brackets at the start, e.g. "[A3] ...".
+Each question must test one of the weakest or least-evidenced criteria below, reference something specific in the CV where possible, and ask for a concrete example (what happened, what they personally did, the outcome). Name the criterion key in brackets at the start, e.g. "[A3] ...". Address the candidate as "you".
 
 PER-CRITERION SCORES:
 ${scoreLines(criteria, scores)}
