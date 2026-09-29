@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
-import { api, runRecompute } from "@/components/api";
+import { api, apiUrl, runRecompute } from "@/components/api";
 import type { Role } from "@/lib/types";
 
 type Item = { id: number; file: File; role: Role; stage: string; tone: "" | "good" | "bad" | "warn"; detail?: string };
@@ -40,7 +40,7 @@ export default function UploadPage() {
         const fd = new FormData();
         fd.append("file", it.file);
         fd.append("role", it.role);
-        const res = await fetch("/api/upload", { method: "POST", body: fd });
+        const res = await fetch(apiUrl("/api/upload"), { method: "POST", body: fd });
         const up = await res.json();
         if (!res.ok || up.error) throw new Error(up.error ?? `HTTP ${res.status}`);
         if (up.status === "needs_review") {
