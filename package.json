@@ -12,7 +12,8 @@
     "db:migrate": "node --env-file=.env.local --experimental-strip-types --no-warnings scripts/migrate.ts",
     "fixtures": "node --experimental-strip-types --no-warnings scripts/make-fixtures.ts",
     "dry-run": "node --experimental-strip-types --no-warnings scripts/dry-run-pii.ts",
-    "batch": "node --env-file=.env.local --experimental-strip-types --no-warnings scripts/batch-upload.ts"
+    "batch": "node --env-file=.env.local --experimental-strip-types --no-warnings scripts/batch-upload.ts",
+    "backfill-originals": "node --env-file=.env.local --experimental-strip-types --no-warnings scripts/backfill-originals.ts"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",

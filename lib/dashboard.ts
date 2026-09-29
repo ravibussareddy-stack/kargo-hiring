@@ -2,6 +2,7 @@ import "server-only";
 import { db, selectAll } from "./supabase";
 import { getSettings, loadCriteria, type Settings } from "./rubric";
 import { deliveryTarget, emailConfigured, finalEmail, testMode } from "./send";
+import { hasOriginals } from "./storage";
 import type { Criterion, Decision, LocationFlag, Pii, Role } from "./types";
 
 export type RoleResult = {
@@ -41,6 +42,8 @@ export type CandidateView = {
   interview_stage: "invited" | "wip" | "offered" | "dropped";
   interview_stage_at: string | null;
   drop_reason: string | null;
+  /** original file extension if the uploaded file is stored ("pdf" | "docx" | "txt"), else null */
+  original_ext: string | null;
   email_draft: { type: Decision; subject: string; body: string; status: string; last_error: string | null } | null;
 };
 
@@ -72,6 +75,7 @@ export async function loadDashboard(): Promise<DashboardData> {
       .catch(() => ({ ok: false as const, rows: [] as any[] })),
   ]);
 
+  const stored = await hasOriginals(cands.map((c) => c.id)).catch(() => new Set<string>());
   const candidates: CandidateView[] = cands.map((c) => {
     const pii = c.pii as Pii;
     const res: CandidateView["results"] = {};
@@ -109,6 +113,7 @@ export async function loadDashboard(): Promise<DashboardData> {
       interview_stage: c.interview_stage ?? "invited",
       interview_stage_at: c.interview_stage_at ?? null,
       drop_reason: c.drop_reason ?? null,
+      original_ext: stored.has(c.id) ? (String(c.file_name).toLowerCase().split(".").pop() ?? null) : null,
       email_draft: e ? { type: e.type, ...finalEmail(e, pii), status: e.status, last_error: e.last_error } : null,
     };
   });

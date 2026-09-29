@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CandidateView, DashboardData, RoleResult } from "@/lib/dashboard";
 import type { Criterion, Role } from "@/lib/types";
-import { api, runRecompute, runRecomputeDetailed } from "./api";
+import { api, apiUrl, runRecompute, runRecomputeDetailed } from "./api";
 
 const OTHER: Record<Role, Role> = { PM: "SPM", SPM: "PM" };
 const ROLE_NAME: Record<Role, string> = { PM: "Product Manager", SPM: "Senior Product Manager" };
@@ -482,7 +482,39 @@ function AiSignalCard({ s }: { s: CandidateView["ai_signal"] }) {
   );
 }
 
-type DrawerTab = "summary" | "evidence" | "interview" | "notes" | "email";
+/** The candidate's actual CV: the original PDF inline, a download for DOCX, or the extracted text. */
+function CvViewer({ c }: { c: CandidateView }) {
+  const [text, setText] = useState<string | null>(null);
+  const src = apiUrl(`/api/candidates/${c.id}/cv`);
+  const isPdf = c.original_ext === "pdf";
+  useEffect(() => {
+    if (isPdf) return;
+    fetch(apiUrl(`/api/candidates/${c.id}/cv?format=text`)).then((r) => r.text()).then(setText).catch(() => setText("Could not load the CV text."));
+  }, [c.id, isPdf]);
+  return (
+    <div className="cv-view">
+      <div className="row" style={{ marginBottom: 12 }}>
+        <span className="muted small" style={{ overflowWrap: "anywhere" }}>
+          {c.file_name}{!c.original_ext && " · original file not stored, showing extracted text"}
+        </span>
+        <span className="spacer" />
+        {c.original_ext && <a className="btn small" href={src} target="_blank" rel="noopener">Open in new tab ↗</a>}
+        {c.original_ext && <a className="btn small" href={`${src}?download=1`}>Download</a>}
+      </div>
+      {isPdf ? (
+        <iframe className="cv-frame" src={`${src}#view=FitH`} title={`CV of ${c.name}`} />
+      ) : (
+        <>
+          {c.original_ext === "docx" && <p className="small muted" style={{ marginTop: 0 }}>Word files can’t be shown in the browser. Download the original, or read the text below.</p>}
+          <pre className="cv-text">{text ?? "Loading…"}</pre>
+        </>
+      )}
+      <p className="small muted" style={{ marginBottom: 0 }}>This is the unredacted CV. It’s only visible to people logged in here and is never sent to the AI.</p>
+    </div>
+  );
+}
+
+type DrawerTab = "summary" | "evidence" | "cv" | "interview" | "notes" | "email";
 
 export function Drawer({ c, role, criteria, data, run, busy, onClose }: {
   c: CandidateView; role: Role; criteria: Criterion[]; data: DashboardData; run: RunFn; busy: boolean; onClose: () => void;
@@ -535,7 +567,7 @@ export function Drawer({ c, role, criteria, data, run, busy, onClose }: {
             </div>
           ) : null}
           <div className="utabs small-tabs" role="tablist">
-            {([["summary", "Summary"], ["evidence", "Evidence"], ["interview", "Interview"], ["notes", "Notes"], ["email", "Email"]] as [DrawerTab, string][]).map(([k, label]) => (
+            {([["summary", "Summary"], ["evidence", "Evidence"], ["cv", "CV"], ["interview", "Interview"], ["notes", "Notes"], ["email", "Email"]] as [DrawerTab, string][]).map(([k, label]) => (
               <button key={k} role="tab" aria-selected={view === k} className={view === k ? "on" : ""} onClick={() => setView(k)}>
                 {label}
                 {k === "interview" && probes.length > 0 && <span className="count">{probes.length}</span>}
@@ -585,6 +617,8 @@ export function Drawer({ c, role, criteria, data, run, busy, onClose }: {
               })}
             </ol>
           ) : <p className="muted">Interview questions are written for candidates above the invite line.</p>)}
+
+          {view === "cv" && <CvViewer c={c} />}
 
           {view === "notes" && <TeamNotes c={c} data={data} run={run} busy={busy} />}
 

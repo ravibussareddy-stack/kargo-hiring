@@ -1,6 +1,7 @@
 import "server-only";
 import { db, must, selectAll } from "./supabase";
 import { extractCvText } from "./extract";
+import { saveOriginal } from "./storage";
 import { extractPii, locationFlag, noteForModel, piiGuard, redact } from "./pii";
 import { computeTotals, sanitizeScores } from "./rubricMath";
 import type { Criterion } from "./types";
@@ -58,6 +59,8 @@ export async function ingestCv(fileName: string, buf: Buffer, role: Role) {
       .select("id, status, status_detail")
       .single(),
   ) as { id: string; status: string; status_detail: string | null };
+  // Keep the original file so the team can view it. Best effort: never blocks scoring.
+  await saveOriginal(row.id, fileName, buf).catch((e) => console.warn("Could not store original CV:", e));
   return row;
 }
 
