@@ -49,6 +49,7 @@ Fill in `.env.local`, which is git-ignored. `.env.example` lists every variable.
 | `GEMINI_MODEL` | e.g. `gemini-3.8-flash`. Change without a code edit |
 | `RESEND_API_KEY` | Leave blank to disable sending |
 | `RESEND_FROM_ADDRESS` | A verified Resend sender, e.g. `Arjun Mehta <hiring@yourdomain>` |
+| `RESEND_REPLY_TO` | Where candidate replies go, i.e. Arjun's real inbox. Without it, replies go to the sender address |
 | `ALLOWED_RECIPIENTS` | Exact test addresses, comma-separated (`+tags` ignored) |
 | `ALLOWED_RECIPIENT_DOMAINS` | Whole test domains. Never a public domain like gmail.com |
 | `TEST_MODE` | `true`: every send goes to the first `ALLOWED_RECIPIENTS` address, with a "Would have gone to: …" line at the top |

@@ -74,7 +74,14 @@ export async function sendCandidateEmail(candidateId: string) {
 
   const resend = new Resend(process.env.RESEND_API_KEY);
   const { data, error } = await resend.emails.send(
-    { from: process.env.RESEND_FROM_ADDRESS!, to, subject, text: body },
+    {
+      from: process.env.RESEND_FROM_ADDRESS!,
+      to,
+      subject,
+      text: body,
+      // Candidates reply to Arjun, not to the sending address (which may be a no-reply/test sender).
+      ...(process.env.RESEND_REPLY_TO ? { replyTo: process.env.RESEND_REPLY_TO } : {}),
+    },
     // Same content => same key, so a double-click can never send twice.
     { idempotencyKey: `kargo-${e.id}-${createHash("sha256").update(to + subject + body).digest("hex").slice(0, 16)}` },
   );
