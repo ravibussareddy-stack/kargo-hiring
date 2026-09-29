@@ -110,12 +110,19 @@ export default function Dashboard({ data }: { data: DashboardData }) {
         </div>
       ) : (
         <div className="table" role="list">
+          <div className="legend-band" aria-label="Score breakdown key">
+            <span className="muted">Score breakdown</span>
+            {BUCKETS.map((b) => {
+              const max = bucketMax(criteria, b.key);
+              return <span key={b.key} title={b.hint}><i style={{ background: b.color }} />{b.label} <span className="faint">/{max}</span></span>;
+            })}
+          </div>
           <div className="thead">
-            <span>#</span><span>Candidate</span><span className="hide-sm">Score breakdown</span><span className="num">Score</span><span className="hide-sm">Status</span>
+            <span>#</span><span>Candidate</span><span className="hide-sm">Breakdown</span><span className="num">Score</span><span className="hide-sm">Decision</span>
           </div>
           {list.map((c, i) => (
             <div key={c.id}>
-              <Row c={c} role={tab} criteria={criteria} active={c.id === selected} onOpen={() => setSelected(c.id)} position={i + 1} />
+              <Row c={c} role={tab} criteria={criteria} active={c.id === selected} onOpen={() => setSelected(c.id)} position={i + 1} run={run} busy={!!busy} />
               {!everyone && i === lastInviteIdx && i < list.length - 1 && (
                 <div className="cutline"><span>Invite line · top {data.cutoff} scoring {data.settings.min_invite_score}+</span></div>
               )}
@@ -124,9 +131,6 @@ export default function Dashboard({ data }: { data: DashboardData }) {
         </div>
       )}
 
-      <div className="legend-foot">
-        {BUCKETS.map((b) => <span key={b.key}><i style={{ background: b.color }} />{b.label}</span>)}
-      </div>
 
       {current && (
         <Drawer key={current.id} c={current} role={tab} criteria={criteria} data={data} run={run} busy={!!busy} onClose={() => setSelected(null)} />
@@ -156,6 +160,7 @@ function Greeting({ candidates }: { candidates: CandidateView[] }) {
   else line = "Every candidate has heard back. Nice work.";
   return (
     <div>
+      <div className="welcome">Welcome</div>
       <h1>{hello}, Arjun</h1>
       <p className="muted">{line}</p>
     </div>
@@ -239,24 +244,45 @@ function ScoreStack({ r, criteria }: { r: RoleResult; criteria: Criterion[] }) {
   );
 }
 
-function Status({ c, applied }: { c: CandidateView; applied: boolean }) {
-  if (c.status === "sent") return <span className="pill good">● Sent</span>;
-  if (c.email_draft?.status === "failed") return <span className="pill bad">● Send failed</span>;
-  if (!applied || !c.decision) return <span className="pill ghost">Applied {c.applied_role}</span>;
-  return c.decision === "invite" ? <span className="pill accent">Invite</span> : <span className="pill">Reject</span>;
+/** Invite | Reject for any candidate, whatever the score. Switching redrafts their email. Sent = locked. */
+function DecisionToggle({ c, run, busy, compact }: { c: CandidateView; run: RunFn; busy: boolean; compact?: boolean }) {
+  if (c.status === "sent") return <span className="pill good" title={c.sent_at ? `Sent ${new Date(c.sent_at).toLocaleString()}` : "Sent"}>✓ Sent · {c.decision === "invite" ? "Invite" : "Reject"}</span>;
+  if (c.email_draft?.status === "failed") return <span className="pill bad">Send failed</span>;
+  if (!c.decision) return <span className="pill ghost">—</span>;
+  const set = (d: "invite" | "reject") => {
+    if (d === c.decision) return;
+    const who = c.name ?? "this candidate";
+    if (!confirm(`${d === "invite" ? "Invite" : "Reject"} ${who}? Their email draft will be rewritten${c.email_draft ? " (manual edits are replaced)" : ""}.`)) return;
+    run(`${d === "invite" ? "Inviting" : "Rejecting"} ${who} and redrafting…`, () => api(`/api/candidates/${c.id}/decision`, "POST", { decision: d }));
+  };
+  return (
+    <span className={`decide ${compact ? "compact" : ""}`} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
+      title={c.decision_overridden ? "Your call: differs from the rubric's recommendation" : "Rubric's recommendation"}>
+      {(["invite", "reject"] as const).map((d) => (
+        <button key={d} type="button" disabled={busy} aria-pressed={c.decision === d} className={c.decision === d ? `on ${d}` : ""} onClick={() => set(d)}>
+          {d === "invite" ? "Invite" : "Reject"}
+        </button>
+      ))}
+      {c.decision_overridden && <span className="override-dot" aria-label="Your call" />}
+    </span>
+  );
 }
 
-function Row({ c, role, criteria, active, onOpen, position }: { c: CandidateView; role: Role; criteria: Criterion[]; active: boolean; onOpen: () => void; position: number }) {
+function Row({ c, role, criteria, active, onOpen, position, run, busy }: {
+  c: CandidateView; role: Role; criteria: Criterion[]; active: boolean; onOpen: () => void; position: number; run: RunFn; busy: boolean;
+}) {
   const r = c.results[role]!;
   const other = c.results[OTHER[role]];
   const applied = c.applied_role === role;
   return (
-    <button className={`tr ${active ? "active" : ""}`} onClick={onOpen} role="listitem">
+    <div className={`tr ${active ? "active" : ""}`} onClick={onOpen} role="listitem" tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter") onOpen(); }}>
       <span className={`rank ${applied && c.decision === "invite" ? "top" : ""}`}>{applied ? r.rank ?? position : "–"}</span>
       <span className="who">
         <span className="name">{c.name ?? "(no name)"}</span>
         <span className="meta">
           {LOC[c.location_flag] ?? LOC.unknown}
+          {!applied && <span className="flag muted-flag">Applied {c.applied_role}</span>}
           {other && other.total > r.total && <span className="flag">Stronger fit for {OTHER[role]}</span>}
           {r.soft_borderline_flag && <span className="flag">Borderline</span>}
           {c.notes.length > 0 && <span className="note-count" title={`${c.notes.length} team note${c.notes.length === 1 ? "" : "s"}`}>✎ {c.notes.length}</span>}
@@ -264,8 +290,8 @@ function Row({ c, role, criteria, active, onOpen, position }: { c: CandidateView
       </span>
       <span className="hide-sm"><ScoreStack r={r} criteria={criteria} /></span>
       <span className="score num">{Math.round(r.total)}</span>
-      <span className="hide-sm"><Status c={c} applied={applied} /></span>
-    </button>
+      <span className="decision-cell"><DecisionToggle c={c} run={run} busy={busy} compact /></span>
+    </div>
   );
 }
 
