@@ -88,3 +88,15 @@ alter table scores enable row level security;
 alter table role_results enable row level security;
 alter table emails enable row level security;
 alter table settings enable row level security;
+
+-- 003: team notes + personal email note
+create table if not exists candidate_notes (
+  id uuid primary key default gen_random_uuid(),
+  candidate_id uuid not null references candidates(id) on delete cascade,
+  author text not null,
+  body text not null check (length(body) between 1 and 4000),
+  created_at timestamptz not null default now()
+);
+create index if not exists candidate_notes_candidate_idx on candidate_notes(candidate_id);
+alter table candidate_notes enable row level security;
+alter table candidates add column if not exists email_note text;

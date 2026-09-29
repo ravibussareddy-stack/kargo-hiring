@@ -259,6 +259,7 @@ function Row({ c, role, criteria, active, onOpen, position }: { c: CandidateView
           {LOC[c.location_flag] ?? LOC.unknown}
           {other && other.total > r.total && <span className="flag">Stronger fit for {OTHER[role]}</span>}
           {r.soft_borderline_flag && <span className="flag">Borderline</span>}
+          {c.notes.length > 0 && <span className="note-count" title={`${c.notes.length} team note${c.notes.length === 1 ? "" : "s"}`}>✎ {c.notes.length}</span>}
         </span>
       </span>
       <span className="hide-sm"><ScoreStack r={r} criteria={criteria} /></span>
@@ -276,7 +277,100 @@ function Dots({ n }: { n: number }) {
   );
 }
 
-type DrawerTab = "summary" | "evidence" | "interview" | "email";
+const AUTHOR_KEY = "kargo-note-author";
+function useAuthor(): [string, (v: string) => void] {
+  const [author, setAuthor] = useState("Arjun");
+  useEffect(() => {
+    try { const v = localStorage.getItem(AUTHOR_KEY); if (v) setAuthor(v); } catch {}
+  }, []);
+  return [author, (v: string) => { setAuthor(v); try { localStorage.setItem(AUTHOR_KEY, v); } catch {} }];
+}
+
+function MigrationHint() {
+  return <p className="notice small">Notes need one database update: run <code>supabase/migrations/003_notes.sql</code> in the Supabase SQL editor.</p>;
+}
+
+/** Internal notes for Arjun and the team. Never sent to the candidate or to the AI. */
+function TeamNotes({ c, data, run, busy }: { c: CandidateView; data: DashboardData; run: RunFn; busy: boolean }) {
+  const [author, setAuthor] = useAuthor();
+  const [body, setBody] = useState("");
+  if (!data.notesReady) return <MigrationHint />;
+  const add = () => run("Saving note…", async () => {
+    await api(`/api/candidates/${c.id}/notes`, "POST", { author, body });
+    setBody("");
+  });
+  return (
+    <div>
+      <p className="muted small" style={{ marginTop: 0 }}>Visible to everyone who can log in. Never sent to the candidate.</p>
+      {c.notes.length === 0 ? <p className="empty-note">No notes yet.</p> : (
+        <ul className="notes">
+          {c.notes.map((n) => (
+            <li key={n.id}>
+              <div className="note-meta">
+                <span className="avatar">{n.author.slice(0, 1).toUpperCase()}</span>
+                <b>{n.author}</b>
+                <span className="muted">{new Date(n.created_at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+                <span className="spacer" />
+                <button className="icon-btn small" title="Delete note" disabled={busy} onClick={() => confirm("Delete this note?") && run("Deleting note…", () => api(`/api/notes/${n.id}`, "DELETE"))}>✕</button>
+              </div>
+              <p>{n.body}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="note-form">
+        <textarea rows={3} placeholder="Add a note for the team: impressions, follow-ups, reference checks…" value={body}
+          onChange={(e) => setBody(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && body.trim()) add(); }} />
+        <div className="row">
+          <label className="small muted row" style={{ gap: 6 }}>As <input style={{ width: 130, padding: "5px 8px" }} value={author} onChange={(e) => setAuthor(e.target.value)} /></label>
+          <span className="spacer" />
+          <span className="small muted hide-sm">⌘↵</span>
+          <button className="btn primary" disabled={busy || !body.trim() || !author.trim()} onClick={add}>Add note</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Arjun's own line for the email. The draft is rewritten around it, and it survives future redrafts. */
+function PersonalNote({ c, data, run, busy }: { c: CandidateView; data: DashboardData; run: RunFn; busy: boolean }) {
+  const [open, setOpen] = useState(Boolean(c.email_note));
+  const [note, setNote] = useState(c.email_note ?? "");
+  if (!data.notesReady) return null;
+  const saved = c.email_note ?? "";
+  const changed = note.trim() !== saved.trim();
+  const apply = (value: string | null, label: string) => {
+    if (c.email_draft && !confirm("This rewrites the draft around your note. Any manual edits to the draft will be replaced. Continue?")) return;
+    run(label, () => api(`/api/candidates/${c.id}/email-note`, "PUT", { note: value }));
+  };
+  if (!open) {
+    return <button className="btn ghost add-note" onClick={() => setOpen(true)}>+ Add a personal note to this email</button>;
+  }
+  return (
+    <div className="personal-note">
+      <div className="row" style={{ marginBottom: 6 }}>
+        <b className="small">Your personal note</b>
+        <span className="muted small">· woven into the email in your words</span>
+      </div>
+      <textarea rows={3} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)}
+        placeholder={c.decision === "reject"
+          ? "e.g. Your freight-desk tracker stood out. If a role with more ops focus opens, I'd like to reach out."
+          : "e.g. Your BoL rebuild is exactly the problem we're solving. Keen to hear how you ran discovery."} />
+      <div className="row" style={{ marginTop: 8 }}>
+        {saved && <button className="btn ghost small danger" disabled={busy} onClick={() => { setNote(""); apply(null, "Removing your note and redrafting…"); }}>Remove note</button>}
+        <span className="spacer" />
+        {!saved && <button className="btn ghost small" onClick={() => { setOpen(false); setNote(""); }}>Cancel</button>}
+        <button className="btn primary small" disabled={busy || !note.trim() || !changed} onClick={() => apply(note, "Adding your note and redrafting…")}>
+          {saved ? "Update & redraft" : "Add to email"}
+        </button>
+      </div>
+      {saved && !changed && <p className="small muted" style={{ margin: "6px 0 0" }}>✓ Included in the draft below. Kept if the draft is rewritten.</p>}
+    </div>
+  );
+}
+
+type DrawerTab = "summary" | "evidence" | "interview" | "notes" | "email";
 
 function Drawer({ c, role, criteria, data, run, busy, onClose }: {
   c: CandidateView; role: Role; criteria: Criterion[]; data: DashboardData; run: RunFn; busy: boolean; onClose: () => void;
@@ -328,10 +422,11 @@ function Drawer({ c, role, criteria, data, run, busy, onClose }: {
             </div>
           ) : null}
           <div className="utabs small-tabs" role="tablist">
-            {([["summary", "Summary"], ["evidence", "Evidence"], ["interview", "Interview"], ["email", "Email"]] as [DrawerTab, string][]).map(([k, label]) => (
+            {([["summary", "Summary"], ["evidence", "Evidence"], ["interview", "Interview"], ["notes", "Notes"], ["email", "Email"]] as [DrawerTab, string][]).map(([k, label]) => (
               <button key={k} role="tab" aria-selected={view === k} className={view === k ? "on" : ""} onClick={() => setView(k)}>
                 {label}
                 {k === "interview" && probes.length > 0 && <span className="count">{probes.length}</span>}
+                {k === "notes" && c.notes.length > 0 && <span className="count">{c.notes.length}</span>}
                 {k === "email" && c.status === "sent" && <span className="count good">sent</span>}
               </button>
             ))}
@@ -377,8 +472,11 @@ function Drawer({ c, role, criteria, data, run, busy, onClose }: {
             </ol>
           ) : <p className="muted">Interview questions are written for candidates above the invite line.</p>)}
 
+          {view === "notes" && <TeamNotes c={c} data={data} run={run} busy={busy} />}
+
           {view === "email" && (
             <>
+              {c.status !== "sent" && <PersonalNote c={c} data={data} run={run} busy={busy} />}
               <EmailEditor c={c} data={data} run={run} busy={busy} />
               <div className="danger-zone">
                 <button className="btn ghost danger small" disabled={busy} onClick={() => confirm(`Delete ${c.name ?? c.file_name}? This removes their scores and draft.`) && run("Deleting…", () => api(`/api/candidates/${c.id}`, "DELETE"))}>Delete candidate</button>

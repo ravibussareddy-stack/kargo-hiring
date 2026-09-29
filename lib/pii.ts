@@ -198,3 +198,18 @@ export function locationFlag(text: string): LocationFlag {
   if (city) return "other";
   return "unknown";
 }
+
+/**
+ * Arjun's own note, prepared for the model: the candidate's name becomes the [NAME]
+ * placeholder (filled back in at send time) and any contact details are dropped.
+ */
+export function noteForModel(note: string, pii: Pii): string {
+  let out = note.replace(EMAIL_RE, "").replace(URL_RE, "").replace(IN_MOBILE_RE, "");
+  for (const p of pii.phone) out = out.split(p).join("");
+  if (pii.name) {
+    out = out.replace(new RegExp(escapeRe(pii.name).replace(/\\? /g, "\\s+"), "gi"), "[NAME]");
+    for (const t of nameTokens(pii.name)) out = out.replace(new RegExp(`(?<![\\p{L}])${escapeRe(t)}(?![\\p{L}])`, "giu"), "[NAME]");
+    out = out.replace(/\[NAME\](\s*\[NAME\])+/g, "[NAME]");
+  }
+  return out.replace(/[ \t]{2,}/g, " ").trim();
+}

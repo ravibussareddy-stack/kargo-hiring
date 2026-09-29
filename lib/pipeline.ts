@@ -1,7 +1,7 @@
 import "server-only";
 import { db, must, selectAll } from "./supabase";
 import { extractCvText } from "./extract";
-import { extractPii, locationFlag, piiGuard, redact } from "./pii";
+import { extractPii, locationFlag, noteForModel, piiGuard, redact } from "./pii";
 import { computeTotals, sanitizeScores } from "./rubricMath";
 import { getSettings, loadValidatedCriteria, type Settings } from "./rubric";
 import { draftEmail, scoreRole, writeBrief, writeProbes } from "./ai";
@@ -221,9 +221,18 @@ async function generateProbes(c: CandidateRow, role: Role) {
   must(await db().from("role_results").update({ interview_probes: probes }).eq("candidate_id", c.id).eq("role", role));
 }
 
+/** Arjun's saved personal note, if any. Tolerates a DB without migration 003. */
+async function personalNote(id: string): Promise<string | null> {
+  const { data, error } = await db().from("candidates").select("email_note").eq("id", id).single();
+  if (error) return null;
+  return (data as { email_note: string | null }).email_note?.trim() || null;
+}
+
 async function generateDraft(c: CandidateRow, type: Decision) {
-  assertSafe(c, [c.cv_redacted!]);
-  const { subject, body } = await draftEmail(c.cv_redacted!, c.applied_role, type);
+  const raw = await personalNote(c.id);
+  const note = raw ? noteForModel(raw, c.pii) : null;
+  assertSafe(c, note ? [c.cv_redacted!, note] : [c.cv_redacted!]);
+  const { subject, body } = await draftEmail(c.cv_redacted!, c.applied_role, type, note);
   must(
     await db()
       .from("emails")
@@ -242,4 +251,14 @@ export async function setDecision(id: string, decision: Decision) {
   const overridden = decision !== autoDecision(rr.rank, Number(rr.total), await getSettings());
   must(await db().from("candidates").update({ decision, decision_overridden: overridden }).eq("id", id));
   await generateDraft({ ...c, decision }, decision);
+}
+
+/** Saves Arjun's personal note for the email and rewrites the draft around it (edits are replaced). */
+export async function setPersonalNote(id: string, note: string | null) {
+  const c = await getCandidate(id);
+  if (c.status === "sent") throw new Error("Email already sent.");
+  const res = await db().from("candidates").update({ email_note: note?.trim() || null }).eq("id", id);
+  if (res.error) throw new Error(/email_note/.test(res.error.message) ? "Run supabase/migrations/003_notes.sql first." : res.error.message);
+  if (!c.decision) throw new Error("No decision yet — score the candidate first.");
+  await generateDraft(c, c.decision);
 }

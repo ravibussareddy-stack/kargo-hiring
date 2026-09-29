@@ -131,7 +131,7 @@ ${cvRedacted}
 const EmailSchema = z.object({ subject: z.string(), body: z.string() });
 export const SIGNATURE = "Arjun Mehta\nFounder, Kargo";
 
-export async function draftEmail(cvRedacted: string, role: Role, type: Decision): Promise<{ subject: string; body: string }> {
+export async function draftEmail(cvRedacted: string, role: Role, type: Decision, personalNote?: string | null): Promise<{ subject: string; body: string }> {
   const brief =
     type === "invite"
       ? `an INTERVIEW INVITE. Short and warm. Propose a 30-minute conversation and ask them to reply with 3 time slots that work for them in the next week.`
@@ -142,7 +142,11 @@ The candidate applied for the ${ROLE_NAME[role]} role at Kargo (Series A logisti
 - Reference ONE specific, real thing from their CV below (a project, result or experience) — do not invent anything.
 - Address them with the literal placeholder [NAME] (e.g. "Hi [NAME],"). Never write any other name for them.
 - Never write the token [REDACTED].
-- Plain text, no markdown. Under 140 words.
+- Plain text, no markdown. Under 140 words.${personalNote ? `
+- Arjun has written a personal note for this candidate. Include it in the email in his voice, keeping his meaning and key words; smooth the grammar only. Do not add promises he did not make. His note:
+"""
+${personalNote}
+"""` : ""}
 - End the body with exactly:
 ${SIGNATURE}
 

@@ -1,5 +1,5 @@
 // Quick self-check for the deterministic PII step: `npm run test:pii`
-import { extractPii, redact, piiGuard, locationFlag } from "../lib/pii.ts";
+import { extractPii, redact, piiGuard, locationFlag, noteForModel } from "../lib/pii.ts";
 
 const cvs: Record<string, string> = {
   pipeHeader: `PRIYA SHARMA
@@ -54,6 +54,14 @@ for (const [label, text] of Object.entries(cvs)) {
   // Over-redaction check: work content must survive.
   if (label === "bulletNotAddress" && !red.includes("Decided to stop building")) { failed++; console.log("!! BULLET WAS REDACTED AS AN ADDRESS"); }
   if (label === "pipeHeader" && (red.includes("Sai Krupa") || !red.includes("Ran discovery"))) { failed++; console.log("!! ADDRESS HANDLING WRONG"); }
+}
+// Arjun's personal note: name -> [NAME], contacts dropped, guard passes.
+{
+  const pii = extractPii(cvs.pipeHeader);
+  const note = noteForModel("Priya, loved your BoL rebuild. Call me on 98200 12345 or priya.sharma@example.com — Sharma's work was great.", pii);
+  const g = piiGuard([note], pii);
+  console.log("\n=== note ===\n" + note, JSON.stringify(g));
+  if (!g.ok || /priya|sharma|98200|@/i.test(note) || !note.includes("[NAME]")) { failed++; console.log("!! NOTE NOT SAFE"); }
 }
 console.log(failed ? `\n${failed} FAILED` : "\nAll PII checks passed.");
 process.exit(failed ? 1 : 0);
