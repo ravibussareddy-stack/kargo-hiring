@@ -502,7 +502,7 @@ function CvViewer({ c }: { c: CandidateView }) {
         {c.original_ext && <a className="btn small" href={`${src}?download=1`}>Download</a>}
       </div>
       {isPdf ? (
-        <iframe className="cv-frame" src={`${src}#view=FitH`} title={`CV of ${c.name}`} />
+        <iframe className="cv-frame" src={`${src}#view=FitH&navpanes=0`} title={`CV of ${c.name}`} />
       ) : (
         <>
           {c.original_ext === "docx" && <p className="small muted" style={{ marginTop: 0 }}>Word files can’t be shown in the browser. Download the original, or read the text below.</p>}
