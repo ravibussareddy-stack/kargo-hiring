@@ -9,7 +9,7 @@ export default function Nav() {
   );
   return (
     <nav>
-      <b>Kargo Hiring</b>
+      <b>Kargo<span className="hide-sm">&nbsp;Hiring</span></b>
       {link("/", "Dashboard")}
       {link("/upload", "Upload CVs")}
       {link("/rubric", "Rubric")}
