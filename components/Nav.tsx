@@ -11,6 +11,7 @@ export default function Nav() {
     <nav>
       <b>Kargo<span className="hide-sm">&nbsp;Hiring</span></b>
       {link("/", "Dashboard")}
+      {link("/interviews", "Interviews")}
       {link("/upload", "Upload CVs")}
       {link("/rubric", "Rubric")}
     </nav>

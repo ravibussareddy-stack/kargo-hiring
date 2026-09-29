@@ -23,7 +23,7 @@ const BUCKETS: { key: Criterion["bucket"]; label: string; hint: string; color: s
 ];
 const bucketMax = (criteria: Criterion[], bucket: Criterion["bucket"]) => criteria.filter((c) => c.bucket === bucket).reduce((s, c) => s + c.weight, 0);
 
-type RunFn = (label: string, fn: () => Promise<unknown>) => Promise<void>;
+export type RunFn = (label: string, fn: () => Promise<unknown>) => Promise<void>;
 
 export default function Dashboard({ data }: { data: DashboardData }) {
   const router = useRouter();
@@ -322,6 +322,8 @@ function Row({ c, role, criteria, active, onOpen, position, run, busy }: {
           {!applied && <span className="flag muted-flag">Applied {c.applied_role}</span>}
           {other && other.total > r.total && <span className="flag">Stronger fit for {OTHER[role]}</span>}
           {r.soft_borderline_flag && <span className="flag">Borderline</span>}
+          {applied && c.decision === "invite" && c.interview_stage === "wip" && <span className="flag stage-wip">Interviewing</span>}
+          {applied && c.decision === "invite" && c.interview_stage === "dropped" && <span className="flag stage-dropped">Dropped off</span>}
           {c.notes.length > 0 && <span className="note-count" title={`${c.notes.length} team note${c.notes.length === 1 ? "" : "s"}`}>✎ {c.notes.length}</span>}
         </span>
       </span>
@@ -341,7 +343,7 @@ function Dots({ n }: { n: number }) {
 }
 
 const AUTHOR_KEY = "kargo-note-author";
-function useAuthor(): [string, (v: string) => void] {
+export function useAuthor(): [string, (v: string) => void] {
   const [author, setAuthor] = useState("Arjun");
   useEffect(() => {
     try { const v = localStorage.getItem(AUTHOR_KEY); if (v) setAuthor(v); } catch {}
@@ -481,7 +483,7 @@ function AiSignalCard({ s }: { s: CandidateView["ai_signal"] }) {
 
 type DrawerTab = "summary" | "evidence" | "interview" | "notes" | "email";
 
-function Drawer({ c, role, criteria, data, run, busy, onClose }: {
+export function Drawer({ c, role, criteria, data, run, busy, onClose }: {
   c: CandidateView; role: Role; criteria: Criterion[]; data: DashboardData; run: RunFn; busy: boolean; onClose: () => void;
 }) {
   const [view, setView] = useState<DrawerTab>("summary");

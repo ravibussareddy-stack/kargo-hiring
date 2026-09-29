@@ -38,6 +38,9 @@ export type CandidateView = {
   notes: { id: string; author: string; body: string; created_at: string }[];
   email_note: string | null;
   ai_signal: { likelihood: number; level: "low" | "medium" | "high"; signals: string[]; summary: string } | null;
+  interview_stage: "invited" | "wip" | "dropped";
+  interview_stage_at: string | null;
+  drop_reason: string | null;
   email_draft: { type: Decision; subject: string; body: string; status: string; last_error: string | null } | null;
 };
 
@@ -50,16 +53,17 @@ export type DashboardData = {
   testMode: boolean;
   /** false until migration 003 has been run */
   notesReady: boolean;
+  /** false until migration 005 has been run */
+  stagesReady: boolean;
 };
 
 export async function loadDashboard(): Promise<DashboardData> {
   const [criteria, settings] = await Promise.all([loadCriteria(), getSettings()]);
   const cutoff = settings.invite_cutoff;
-  const candCols = "id, created_at, applied_role, file_name, pii, location_flag, status, status_detail, decision, decision_overridden, sent_at";
-  const loadCands = (cols: string) => selectAll<any>((a, b) => db().from("candidates").select(cols).order("created_at", { ascending: false }).order("id").range(a, b));
+  // select("*") so columns added by later migrations appear when present and are simply absent before.
+  // raw_text / cv_redacted are read server-side only and never passed to the page.
   const [cands, results, scores, emails, notesRes] = await Promise.all([
-    // email_note arrives with migration 003; fall back quietly if it isn't there yet.
-    loadCands(`${candCols}, email_note, ai_signal`).catch(() => loadCands(`${candCols}, email_note`)).catch(() => loadCands(candCols)),
+    selectAll<any>((a, b) => db().from("candidates").select("*").order("created_at", { ascending: false }).order("id").range(a, b)),
     selectAll<any>((a, b) => db().from("role_results").select("*").order("candidate_id").order("role").range(a, b)),
     selectAll<any>((a, b) => db().from("scores").select("candidate_id, role, criterion_key, score, evidence, reason").order("id").range(a, b)),
     selectAll<any>((a, b) => db().from("emails").select("*").order("id").range(a, b)),
@@ -102,8 +106,11 @@ export async function loadDashboard(): Promise<DashboardData> {
       notes: notesRes.rows.filter((n) => n.candidate_id === c.id).map(({ id, author, body, created_at }) => ({ id, author, body, created_at })),
       email_note: c.email_note ?? null,
       ai_signal: c.ai_signal ?? null,
+      interview_stage: c.interview_stage ?? "invited",
+      interview_stage_at: c.interview_stage_at ?? null,
+      drop_reason: c.drop_reason ?? null,
       email_draft: e ? { type: e.type, ...finalEmail(e, pii), status: e.status, last_error: e.last_error } : null,
     };
   });
-  return { candidates, criteria, cutoff, settings, emailConfigured: emailConfigured(), testMode: testMode(), notesReady: notesRes.ok };
+  return { candidates, criteria, cutoff, settings, emailConfigured: emailConfigured(), testMode: testMode(), notesReady: notesRes.ok, stagesReady: cands.length === 0 || "interview_stage" in cands[0] };
 }
