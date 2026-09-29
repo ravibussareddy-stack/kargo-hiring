@@ -5,7 +5,7 @@ import { extractPii, locationFlag, noteForModel, piiGuard, redact } from "./pii"
 import { computeTotals, sanitizeScores } from "./rubricMath";
 import type { Criterion } from "./types";
 import { getSettings, loadValidatedCriteria, type Settings } from "./rubric";
-import { draftEmail, scoreRole, writeBrief, writeProbes } from "./ai";
+import { draftEmail, estimateAiWriting, scoreRole, writeBrief, writeProbes } from "./ai";
 import { ROLES, type CriterionScore, type Decision, type Pii, type Role } from "./types";
 
 type CandidateRow = {
@@ -89,7 +89,7 @@ export async function processCandidate(id: string) {
   if (!c.cv_redacted) throw new Error("No redacted CV.");
   try {
     assertSafe(c, [c.cv_redacted]);
-    await Promise.all(ROLES.map((role) => scoreAndBrief(c, role)));
+    await Promise.all([...ROLES.map((role) => scoreAndBrief(c, role)), storeAiSignal(c).catch(() => {})]);
     await setStatus(id, c.status === "sent" ? "sent" : "scored");
     return { status: "scored" };
   } catch (e) {
@@ -291,4 +291,42 @@ export async function retotalAll(): Promise<number> {
     updated += updates.length;
   }
   return updated;
+}
+
+/**
+ * Moves an application between PM and SPM. Both rubrics are already scored, so no AI
+ * re-scoring: the candidate is re-ranked in the new role and gets a fresh draft that
+ * names the right job (the caller runs recompute). Blocked once an email has been sent.
+ */
+export async function changeAppliedRole(id: string, role: Role) {
+  const c = await getCandidate(id);
+  if (c.applied_role === role) return;
+  if (c.status === "sent") throw new Error("An email has already been sent for this application.");
+  must(await db().from("candidates").update({ applied_role: role, decision: null, decision_overridden: false }).eq("id", id));
+  must(await db().from("emails").delete().eq("candidate_id", id));
+}
+
+/** Information-only AI-writing estimate. Never feeds scores, ranks or emails. Silently skipped before migration 004. */
+export async function storeAiSignal(c: Pick<CandidateRow, "id" | "cv_redacted" | "pii">) {
+  if (!c.cv_redacted) return false;
+  assertSafe(c as CandidateRow, [c.cv_redacted]);
+  const signal = await estimateAiWriting(c.cv_redacted);
+  const res = await db().from("candidates").update({ ai_signal: { ...signal, at: new Date().toISOString() } }).eq("id", c.id);
+  if (res.error) throw new Error(res.error.message);
+  return true;
+}
+
+/** Fills in the AI-writing signal for candidates that don't have one yet, a few per request. */
+export async function backfillAiSignals(limit = 6): Promise<{ done: number; remaining: number; errors: string[] }> {
+  const probe = await db().from("candidates").select("ai_signal").limit(1);
+  if (probe.error) throw new Error("Run supabase/migrations/004_ai_signal.sql first.");
+  const todo = await selectAll<CandidateRow & { ai_signal: unknown }>((a, b) =>
+    db().from("candidates").select("id, cv_redacted, pii, ai_signal").is("ai_signal", null).neq("status", "needs_review").order("id").range(a, b));
+  const batch = todo.slice(0, limit);
+  const errors: string[] = [];
+  let done = 0;
+  await Promise.all(batch.map(async (c) => {
+    try { if (await storeAiSignal(c)) done++; } catch (e) { errors.push(e instanceof Error ? e.message : String(e)); }
+  }));
+  return { done, remaining: todo.length - done, errors };
 }

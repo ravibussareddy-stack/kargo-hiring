@@ -11,7 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={inter.variable}>
       <body>
-        <div className="ambient" aria-hidden><i /><i /><i /><i /></div>
+        <div className="ambient" aria-hidden><i /><i /><i /><i /><i /><i /><i /><i /></div>
         <Nav />
         <main>{children}</main>
       </body>

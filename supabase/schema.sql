@@ -100,3 +100,6 @@ create table if not exists candidate_notes (
 create index if not exists candidate_notes_candidate_idx on candidate_notes(candidate_id);
 alter table candidate_notes enable row level security;
 alter table candidates add column if not exists email_note text;
+
+-- 004: AI-writing signal (information only)
+alter table candidates add column if not exists ai_signal jsonb;

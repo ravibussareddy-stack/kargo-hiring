@@ -433,6 +433,52 @@ function PersonalNote({ c, data, run, busy }: { c: CandidateView; data: Dashboar
   );
 }
 
+/** Move the application between PM and SPM. Scores for both already exist; only ranking + email change. */
+function RoleSwitch({ c, run, busy }: { c: CandidateView; run: RunFn; busy: boolean }) {
+  const locked = c.status === "sent";
+  const move = (role: Role) => {
+    if (role === c.applied_role || locked) return;
+    const pm = c.results.PM?.total, spm = c.results.SPM?.total;
+    if (!confirm(`Move ${c.name ?? "this candidate"} to the ${ROLE_NAME[role]} role?\n\nThey'll be ranked on the ${role} rubric (${Math.round((role === "PM" ? pm : spm) ?? 0)}/100) and get a new email draft for that role. Any Invite/Reject choice or draft edits for the current role are reset.`)) return;
+    run(`Moving to ${role} and redrafting…`, async () => {
+      await api(`/api/candidates/${c.id}/role`, "POST", { role });
+      const errs = await runRecompute();
+      if (errs.length) throw new Error(errs.join("\n"));
+      return `Moved to ${ROLE_NAME[role]}. New draft written.`;
+    });
+  };
+  return (
+    <div className="role-switch" title={locked ? "Email already sent: role can't change" : "Change which role this application is for"}>
+      <span className="muted small">Applied for</span>
+      <span className="seg">
+        {(["PM", "SPM"] as Role[]).map((r) => (
+          <button key={r} type="button" disabled={busy || locked} className={c.applied_role === r ? "on" : ""} onClick={() => move(r)}>
+            {r} <span className="faint">{Math.round(c.results[r]?.total ?? 0)}</span>
+          </button>
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/** Information-only: an estimate of AI-generated CV text. Deliberately separated from the score. */
+function AiSignalCard({ s }: { s: CandidateView["ai_signal"] }) {
+  if (!s) return null;
+  const label = { low: "Low", medium: "Medium", high: "High" }[s.level];
+  return (
+    <div className={`ai-signal ${s.level}`}>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h3 style={{ margin: 0 }}>AI-writing signal</h3>
+        <span className="ai-level">{label} · ~{s.likelihood}%</span>
+      </div>
+      <div className="meter" style={{ margin: "10px 0 8px" }}><span style={{ width: `${s.likelihood}%` }} /></div>
+      <p className="small" style={{ margin: "0 0 8px" }}>{s.summary}</p>
+      {s.signals.length > 0 && <div className="ai-quotes">{s.signals.map((q, i) => <span key={i}>“{q}”</span>)}</div>}
+      <p className="small muted" style={{ margin: "8px 0 0" }}>Estimate only. AI detection is unreliable. Not used in scoring or decisions, and never judged on grammar or English fluency.</p>
+    </div>
+  );
+}
+
 type DrawerTab = "summary" | "evidence" | "interview" | "notes" | "email";
 
 function Drawer({ c, role, criteria, data, run, busy, onClose }: {
@@ -460,6 +506,7 @@ function Drawer({ c, role, criteria, data, run, busy, onClose }: {
               <div className="eyebrow">{applied ? `#${r.rank} · ${ROLE_NAME[role]}` : `Applied for ${c.applied_role} · scored as ${role}`}</div>
               <h2>{c.name}</h2>
               <div className="muted small">{LOC[c.location_flag] ?? LOC.unknown} · {c.file_name}</div>
+              <RoleSwitch c={c} run={run} busy={busy} />
             </div>
             <div className="row" style={{ gap: 16, alignItems: "flex-start" }}>
               <div className="bigscore">{Math.round(r.total)}<small>/100</small></div>
@@ -501,6 +548,7 @@ function Drawer({ c, role, criteria, data, run, busy, onClose }: {
             <div className="fit">
               <div><h3>Why they fit</h3><ul className="bullets pro">{pros.map((l, i) => <li key={i}>{l}</li>)}</ul></div>
               <div><h3>Risks</h3><ul className="bullets con">{cons.map((l, i) => <li key={i}>{l}</li>)}</ul></div>
+              <AiSignalCard s={c.ai_signal} />
             </div>
           )}
 

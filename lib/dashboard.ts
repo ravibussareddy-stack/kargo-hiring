@@ -37,6 +37,7 @@ export type CandidateView = {
   delivery: { to: string | null; blocked: string | null };
   notes: { id: string; author: string; body: string; created_at: string }[];
   email_note: string | null;
+  ai_signal: { likelihood: number; level: "low" | "medium" | "high"; signals: string[]; summary: string } | null;
   email_draft: { type: Decision; subject: string; body: string; status: string; last_error: string | null } | null;
 };
 
@@ -58,7 +59,7 @@ export async function loadDashboard(): Promise<DashboardData> {
   const loadCands = (cols: string) => selectAll<any>((a, b) => db().from("candidates").select(cols).order("created_at", { ascending: false }).order("id").range(a, b));
   const [cands, results, scores, emails, notesRes] = await Promise.all([
     // email_note arrives with migration 003; fall back quietly if it isn't there yet.
-    loadCands(`${candCols}, email_note`).catch(() => loadCands(candCols)),
+    loadCands(`${candCols}, email_note, ai_signal`).catch(() => loadCands(`${candCols}, email_note`)).catch(() => loadCands(candCols)),
     selectAll<any>((a, b) => db().from("role_results").select("*").order("candidate_id").order("role").range(a, b)),
     selectAll<any>((a, b) => db().from("scores").select("candidate_id, role, criterion_key, score, evidence, reason").order("id").range(a, b)),
     selectAll<any>((a, b) => db().from("emails").select("*").order("id").range(a, b)),
@@ -100,6 +101,7 @@ export async function loadDashboard(): Promise<DashboardData> {
       delivery: deliveryTarget(pii.email),
       notes: notesRes.rows.filter((n) => n.candidate_id === c.id).map(({ id, author, body, created_at }) => ({ id, author, body, created_at })),
       email_note: c.email_note ?? null,
+      ai_signal: c.ai_signal ?? null,
       email_draft: e ? { type: e.type, ...finalEmail(e, pii), status: e.status, last_error: e.last_error } : null,
     };
   });
