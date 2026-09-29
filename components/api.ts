@@ -11,12 +11,20 @@ export async function api<T = any>(url: string, method = "POST", body?: unknown)
 
 /** Ranks + pending AI work (probes, drafts). Loops until nothing is pending. */
 export async function runRecompute(onProgress?: (pending: number) => void) {
+  const out = await runRecomputeDetailed(onProgress);
+  return out.errors;
+}
+
+/** Same as runRecompute, but also reports how many invite/reject decisions changed. */
+export async function runRecomputeDetailed(onProgress?: (pending: number) => void) {
   const errors: string[] = [];
+  let changed = 0;
   for (let i = 0; i < 15; i++) {
-    const r = await api<{ pending: number; errors: string[] }>("/api/recompute");
+    const r = await api<{ pending: number; errors: string[]; changed?: number }>("/api/recompute");
     errors.push(...r.errors);
+    changed += r.changed ?? 0;
     onProgress?.(r.pending);
     if (!r.pending) break;
   }
-  return errors;
+  return { errors, changed };
 }

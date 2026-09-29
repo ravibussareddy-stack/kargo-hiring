@@ -3,6 +3,7 @@ import { db, must, selectAll } from "./supabase";
 import { extractCvText } from "./extract";
 import { extractPii, locationFlag, noteForModel, piiGuard, redact } from "./pii";
 import { computeTotals, sanitizeScores } from "./rubricMath";
+import type { Criterion } from "./types";
 import { getSettings, loadValidatedCriteria, type Settings } from "./rubric";
 import { draftEmail, scoreRole, writeBrief, writeProbes } from "./ai";
 import { ROLES, type CriterionScore, type Decision, type Pii, type Role } from "./types";
@@ -141,7 +142,7 @@ function autoDecision(rank: number | null, total: number, s: Settings): Decision
  * the top N, drafts for changed decisions). Work is time-boxed so it fits in a
  * serverless request; returns how many items are still pending — call again.
  */
-export async function recompute(budgetMs = 40_000): Promise<{ pending: number; errors: string[] }> {
+export async function recompute(budgetMs = 40_000): Promise<{ pending: number; errors: string[]; changed: number }> {
   const started = Date.now();
   const settings = await getSettings();
   const candidates = await selectAll<CandidateRow>((a, b) =>
@@ -153,6 +154,7 @@ export async function recompute(budgetMs = 40_000): Promise<{ pending: number; e
   );
 
   const jobs: (() => Promise<void>)[] = [];
+  let changed = 0;
 
   for (const role of ROLES) {
     const applicants = results
@@ -189,6 +191,7 @@ export async function recompute(budgetMs = 40_000): Promise<{ pending: number; e
       if (c.decision !== want) {
         must(await db().from("candidates").update({ decision: want }).eq("id", c.id));
         c.decision = want;
+        changed++;
       }
       if (emailType.get(c.id) !== want) jobs.push(() => generateDraft(c, want));
     }
@@ -210,7 +213,7 @@ export async function recompute(budgetMs = 40_000): Promise<{ pending: number; e
     }
   };
   await Promise.all([worker(), worker(), worker()]);
-  return { pending: jobs.length - done, errors };
+  return { pending: jobs.length - done, errors, changed };
 }
 
 async function generateProbes(c: CandidateRow, role: Role) {
@@ -261,4 +264,31 @@ export async function setPersonalNote(id: string, note: string | null) {
   if (res.error) throw new Error(/email_note/.test(res.error.message) ? "Run supabase/migrations/003_notes.sql first." : res.error.message);
   if (!c.decision) throw new Error("No decision yet — score the candidate first.");
   await generateDraft(c, c.decision);
+}
+
+/**
+ * Re-applies the current weights to the scores already stored — pure arithmetic, no AI.
+ * Weight edits on /rubric take effect instantly; only wording changes need a re-score.
+ */
+export async function retotalAll(): Promise<number> {
+  let updated = 0;
+  for (const role of ROLES) {
+    const criteria: Criterion[] = await loadValidatedCriteria(role);
+    const scores = await selectAll<CriterionScore & { candidate_id: string }>((a, b) =>
+      db().from("scores").select("candidate_id, criterion_key, score, evidence, reason").eq("role", role).order("id").range(a, b));
+    const byCandidate = new Map<string, CriterionScore[]>();
+    for (const sc of scores) byCandidate.set(sc.candidate_id, [...(byCandidate.get(sc.candidate_id) ?? []), sc]);
+    const current = await selectAll<{ candidate_id: string; total: number }>((a, b) =>
+      db().from("role_results").select("candidate_id, total").eq("role", role).order("candidate_id").range(a, b));
+    const old = new Map(current.map((r) => [r.candidate_id, Number(r.total)]));
+    const updates = [...byCandidate]
+      .map(([id, sc]) => ({ id, totals: computeTotals(criteria, sc) }))
+      .filter((u) => old.get(u.id) !== u.totals.total);
+    for (let i = 0; i < updates.length; i += 15) {
+      await Promise.all(updates.slice(i, i + 15).map(async (u) =>
+        must(await db().from("role_results").update(u.totals).eq("candidate_id", u.id).eq("role", role))));
+    }
+    updated += updates.length;
+  }
+  return updated;
 }

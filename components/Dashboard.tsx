@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CandidateView, DashboardData, RoleResult } from "@/lib/dashboard";
 import type { Criterion, Role } from "@/lib/types";
-import { api, runRecompute } from "./api";
+import { api, runRecompute, runRecomputeDetailed } from "./api";
 
 const OTHER: Record<Role, Role> = { PM: "SPM", SPM: "PM" };
 const ROLE_NAME: Record<Role, string> = { PM: "Product Manager", SPM: "Senior Product Manager" };
@@ -32,12 +32,20 @@ export default function Dashboard({ data }: { data: DashboardData }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 6000);
+    return () => clearTimeout(t);
+  }, [flash]);
 
   async function run(label: string, fn: () => Promise<unknown>) {
     setBusy(label);
     setErr(null);
+    setFlash(null);
     try {
-      await fn();
+      const result = await fn();
+      if (typeof result === "string") setFlash(result);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -85,7 +93,8 @@ export default function Dashboard({ data }: { data: DashboardData }) {
 
       <Overview candidates={data.candidates} testMode={data.testMode} />
 
-      {busy && <div className="toast">{busy}</div>}
+      {busy && <div className="toast"><span className="spinner" />{busy}</div>}
+      {!busy && flash && <div className="toast done" onClick={() => setFlash(null)}>✓ {flash}</div>}
       {err && <div className="error">{err}</div>}
       {attention.length > 0 && <Attention items={attention} run={run} busy={!!busy} />}
 
@@ -167,34 +176,62 @@ function Greeting({ candidates }: { candidates: CandidateView[] }) {
   );
 }
 
+/** What the rule would do, computed in the browser before saving. Overrides and sent emails are kept as they are. */
+function previewInvites(candidates: CandidateView[], cutoff: number, min: number) {
+  let total = 0;
+  const perRole: Record<Role, number> = { PM: 0, SPM: 0 };
+  for (const role of ["PM", "SPM"] as Role[]) {
+    const ranked = candidates
+      .filter((c) => c.applied_role === role && c.results[role] && (c.status === "scored" || c.status === "sent"))
+      .sort((a, b) => b.results[role]!.total - a.results[role]!.total);
+    ranked.forEach((c, i) => {
+      const auto = i + 1 <= cutoff && c.results[role]!.total >= min ? "invite" : "reject";
+      const d = c.status === "sent" || c.decision_overridden ? c.decision : auto;
+      if (d === "invite") { total++; perRole[role]++; }
+    });
+  }
+  return { total, perRole };
+}
+
 function InviteRule({ data, run, busy }: { data: DashboardData; run: RunFn; busy: boolean }) {
   const [open, setOpen] = useState(false);
   const [cutoff, setCutoff] = useState(String(data.cutoff));
   const [minScore, setMinScore] = useState(String(data.settings.min_invite_score));
   const changed = cutoff !== String(data.cutoff) || minScore !== String(data.settings.min_invite_score);
+  const valid = Number.isInteger(Number(cutoff)) && Number(cutoff) >= 0 && Number(minScore) >= 0 && Number(minScore) <= 100 && cutoff !== "" && minScore !== "";
+  const now = data.candidates.filter((c) => (c.status === "scored" || c.status === "sent") && c.decision === "invite").length;
+  const next = valid ? previewInvites(data.candidates, Number(cutoff), Number(minScore)) : null;
+  const diff = next ? next.total - now : 0;
   return (
     <div style={{ position: "relative" }}>
-      <button className="btn" onClick={() => setOpen(!open)}>
+      <button className="btn" onClick={() => { setCutoff(String(data.cutoff)); setMinScore(String(data.settings.min_invite_score)); setOpen(!open); }}>
         Invite rule <span className="muted">· top {data.cutoff}, score {data.settings.min_invite_score}+</span>
       </button>
       {open && (
         <div className="popover">
           <label>Invite the top <input type="number" min={0} value={cutoff} onChange={(e) => setCutoff(e.target.value)} /></label>
           <label>Minimum score <input type="number" min={0} max={100} value={minScore} onChange={(e) => setMinScore(e.target.value)} /></label>
-          {!data.settings.min_score_migrated && <p className="small muted">Minimum is fixed at 50 until migration 002 is run.</p>}
-          <p className="small muted">Saving re-ranks everyone and redrafts emails that change. Sent emails are never touched.</p>
+          {!data.settings.min_score_migrated && <p className="small muted">Minimum is fixed at 50 until the SQL update is run.</p>}
+          {next && (
+            <div className="preview">
+              <div><b>{next.total}</b> invites <span className="muted">· PM {next.perRole.PM} · SPM {next.perRole.SPM}</span></div>
+              <div className={`small ${diff ? "" : "muted"}`}>{!changed ? "Current rule" : diff === 0 ? "Same number of invites as now" : `${diff > 0 ? "+" : ""}${diff} vs now (${now})`}</div>
+            </div>
+          )}
+          <p className="small muted">Emails that change are rewritten. Your manual Invite/Reject choices and sent emails are kept.</p>
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button className="btn ghost" onClick={() => setOpen(false)}>Cancel</button>
             <button
               className="btn primary"
-              disabled={busy || !changed}
-              onClick={() => { setOpen(false); run("Updating the invite rule and redrafting…", async () => {
+              disabled={busy || !changed || !valid}
+              onClick={() => { setOpen(false); run("Applying the invite rule and rewriting emails…", async () => {
                 await api("/api/settings", "PUT", { invite_cutoff: Number(cutoff), min_invite_score: Number(minScore) });
-                const errs = await runRecompute();
-                if (errs.length) throw new Error(errs.join("\n"));
+                const { errors, changed } = await runRecomputeDetailed();
+                if (errors.length) throw new Error(errors.join("\n"));
+                return `Invite rule applied: ${next?.total ?? "?"} invites · ${changed} decision${changed === 1 ? "" : "s"} changed`;
               }); }}
             >
-              Save
+              Apply
             </button>
           </div>
         </div>

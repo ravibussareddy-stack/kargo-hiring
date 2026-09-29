@@ -1,10 +1,12 @@
 import { handle } from "@/lib/http";
 import { db, must } from "@/lib/supabase";
 import { loadCriteria } from "@/lib/rubric";
+import { retotalAll } from "@/lib/pipeline";
 import { weightSum } from "@/lib/rubricMath";
 import { ROLES } from "@/lib/types";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 type Edit = { id: string; name: string; weight: number; strong_description: string; weak_description: string };
 
@@ -22,9 +24,17 @@ export async function PUT(req: Request) {
       if (!edits.has(c.id)) continue;
       if (!(c.weight >= 0) || !c.name.trim() || !c.strong_description.trim() || !c.weak_description.trim()) throw new Error(`Invalid values for ${c.role} ${c.key}.`);
     }
+    const before = new Map(current.map((c) => [c.id, c]));
+    const weightChanged = merged.some((c) => before.get(c.id)!.weight !== c.weight);
+    const wordingChanged = merged.some((c) => {
+      const b = before.get(c.id)!;
+      return b.strong_description !== c.strong_description || b.weak_description !== c.weak_description;
+    });
     for (const c of merged.filter((c) => edits.has(c.id))) {
       must(await db().from("rubric_criteria").update({ name: c.name, weight: c.weight, strong_description: c.strong_description, weak_description: c.weak_description }).eq("id", c.id));
     }
-    return { ok: true, note: "Saved. Existing scores are unchanged; re-score candidates to apply." };
+    // Weights only change arithmetic on stored scores: apply them now.
+    const retotalled = weightChanged ? await retotalAll() : 0;
+    return { ok: true, weightChanged, wordingChanged, retotalled };
   });
 }
