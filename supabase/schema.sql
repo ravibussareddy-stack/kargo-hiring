@@ -108,3 +108,7 @@ alter table candidates add column if not exists ai_signal jsonb;
 alter table candidates add column if not exists interview_stage text check (interview_stage in ('invited', 'wip', 'dropped'));
 alter table candidates add column if not exists interview_stage_at timestamptz;
 alter table candidates add column if not exists drop_reason text;
+
+-- 006: offered stage
+alter table candidates drop constraint if exists candidates_interview_stage_check;
+alter table candidates add constraint candidates_interview_stage_check check (interview_stage in ('invited', 'wip', 'offered', 'dropped'));

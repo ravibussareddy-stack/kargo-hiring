@@ -323,6 +323,7 @@ function Row({ c, role, criteria, active, onOpen, position, run, busy }: {
           {other && other.total > r.total && <span className="flag">Stronger fit for {OTHER[role]}</span>}
           {r.soft_borderline_flag && <span className="flag">Borderline</span>}
           {applied && c.decision === "invite" && c.interview_stage === "wip" && <span className="flag stage-wip">Interviewing</span>}
+          {applied && c.decision === "invite" && c.interview_stage === "offered" && <span className="flag stage-offered">✓ Offered</span>}
           {applied && c.decision === "invite" && c.interview_stage === "dropped" && <span className="flag stage-dropped">Dropped off</span>}
           {c.notes.length > 0 && <span className="note-count" title={`${c.notes.length} team note${c.notes.length === 1 ? "" : "s"}`}>✎ {c.notes.length}</span>}
         </span>

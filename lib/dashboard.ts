@@ -38,7 +38,7 @@ export type CandidateView = {
   notes: { id: string; author: string; body: string; created_at: string }[];
   email_note: string | null;
   ai_signal: { likelihood: number; level: "low" | "medium" | "high"; signals: string[]; summary: string } | null;
-  interview_stage: "invited" | "wip" | "dropped";
+  interview_stage: "invited" | "wip" | "offered" | "dropped";
   interview_stage_at: string | null;
   drop_reason: string | null;
   email_draft: { type: Decision; subject: string; body: string; status: string; last_error: string | null } | null;

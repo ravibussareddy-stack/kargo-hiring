@@ -9,9 +9,10 @@ type Stage = CandidateView["interview_stage"];
 const LANES: { key: Stage; title: string; hint: string }[] = [
   { key: "invited", title: "Invited", hint: "Awaiting a reply to schedule" },
   { key: "wip", title: "In progress", hint: "Interviews under way" },
+  { key: "offered", title: "Offered", hint: "Offer made: end of the process" },
   { key: "dropped", title: "Dropped off", hint: "Left the process" },
 ];
-const DROP_REASONS = ["No response", "Withdrew", "Accepted another offer", "Not a fit after interview", "Other"];
+const DROP_REASONS = ["No response", "Withdrew", "Accepted another offer", "Not a fit after interview", "Declined offer", "Other"];
 
 export default function Interviews({ data }: { data: DashboardData }) {
   const router = useRouter();
@@ -20,7 +21,8 @@ export default function Interviews({ data }: { data: DashboardData }) {
   const [err, setErr] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [dropping, setDropping] = useState<CandidateView | null>(null);
+  const [dropping, setDropping] = useState<{ c: CandidateView; preset?: string } | null>(null);
+  const [offering, setOffering] = useState<CandidateView | null>(null);
   useEffect(() => { if (!flash) return; const t = setTimeout(() => setFlash(null), 5000); return () => clearTimeout(t); }, [flash]);
 
   const run: RunFn = async (label, fn) => {
@@ -49,7 +51,7 @@ export default function Interviews({ data }: { data: DashboardData }) {
           <div className="welcome">Interviews</div>
           <h1>Interview pipeline</h1>
           <p className="muted">
-            {invited.length} invited · {lane("wip").length} in progress · {lane("dropped").length} dropped off
+            {invited.length} invited · {lane("wip").length} in progress · {lane("offered").length} offered · {lane("dropped").length} dropped off
           </p>
         </div>
         <label className="small muted row" style={{ gap: 6 }}>
@@ -74,14 +76,16 @@ export default function Interviews({ data }: { data: DashboardData }) {
               </div>
               {lane(l.key).length === 0 && <p className="lane-empty">Nobody here.</p>}
               {lane(l.key).map((c) => (
-                <InterviewCard key={c.id} c={c} busy={!!busy || !data.stagesReady} onOpen={() => setSelected(c.id)} onMove={move} onDrop={() => setDropping(c)} />
+                <InterviewCard key={c.id} c={c} busy={!!busy || !data.stagesReady} onOpen={() => setSelected(c.id)} onMove={move}
+                  onDrop={(preset) => setDropping({ c, preset })} onOffer={() => setOffering(c)} />
               ))}
             </section>
           ))}
         </div>
       )}
 
-      {dropping && <DropDialog c={dropping} onCancel={() => setDropping(null)} onConfirm={(reason) => { const c = dropping; setDropping(null); move(c, "dropped", reason); }} />}
+      {dropping && <DropDialog c={dropping.c} preset={dropping.preset} onCancel={() => setDropping(null)} onConfirm={(reason) => { const c = dropping.c; setDropping(null); move(c, "dropped", reason); }} />}
+      {offering && <OfferDialog c={offering} onCancel={() => setOffering(null)} onConfirm={(note) => { const c = offering; setOffering(null); move(c, "offered", note); }} />}
 
       {current && (
         <Drawer key={current.id} c={current} role={current.applied_role} criteria={data.criteria.filter((k) => k.role === current.applied_role)}
@@ -91,12 +95,13 @@ export default function Interviews({ data }: { data: DashboardData }) {
   );
 }
 
-function InterviewCard({ c, busy, onOpen, onMove, onDrop }: {
-  c: CandidateView; busy: boolean; onOpen: () => void; onMove: (c: CandidateView, s: Stage) => void; onDrop: () => void;
+function InterviewCard({ c, busy, onOpen, onMove, onDrop, onOffer }: {
+  c: CandidateView; busy: boolean; onOpen: () => void; onMove: (c: CandidateView, s: Stage) => void; onDrop: (preset?: string) => void; onOffer: () => void;
 }) {
   const r = c.results[c.applied_role]!;
   const sent = c.status === "sent";
   const lastNote = [...c.notes].reverse().find((n) => !/^Moved to /.test(n.body));
+  const offerNote = c.interview_stage === "offered" ? [...c.notes].reverse().find((n) => /^Moved to Offered \(/.test(n.body))?.body.replace(/^Moved to Offered \((.*)\)\.$/, "$1") : null;
   const since = c.interview_stage_at ? new Date(c.interview_stage_at).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : null;
   return (
     <article className="icard" onClick={onOpen} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onOpen()}>
@@ -108,22 +113,32 @@ function InterviewCard({ c, busy, onOpen, onMove, onDrop }: {
         <span className={`pill ${sent ? "good" : ""}`} title={sent ? "Invite email sent" : "Invite drafted, not sent yet"}>{sent ? "✓ Invite sent" : "Not sent"}</span>
       </div>
       {c.interview_stage === "dropped" && <p className="drop-reason">{c.drop_reason}</p>}
+      {c.interview_stage === "offered" && <p className="offer-note">✓ Offer made{since ? ` on ${since}` : ""}{offerNote ? ` · ${offerNote}` : ""}</p>}
       {lastNote && <p className="last-note">“{lastNote.body.length > 110 ? lastNote.body.slice(0, 110) + "…" : lastNote.body}” <span className="faint">— {lastNote.author}</span></p>}
       <div className="icard-foot" onClick={(e) => e.stopPropagation()}>
-        {since && <span className="faint small">since {since}</span>}
+        {since && c.interview_stage !== "offered" && <span className="faint small">since {since}</span>}
         <span className="spacer" />
-        {c.interview_stage === "invited" && <button className="btn small primary" disabled={busy} onClick={() => onMove(c, "wip")}>Start interview</button>}
-        {c.interview_stage === "wip" && <button className="btn small ghost" disabled={busy} onClick={() => onMove(c, "invited")}>Back to invited</button>}
-        {c.interview_stage !== "dropped"
-          ? <button className="btn small ghost danger" disabled={busy} onClick={onDrop}>Drop off</button>
-          : <button className="btn small" disabled={busy} onClick={() => onMove(c, "wip")}>Reinstate</button>}
+        {c.interview_stage === "invited" && <>
+          <button className="btn small ghost danger" disabled={busy} onClick={() => onDrop()}>Drop off</button>
+          <button className="btn small primary" disabled={busy} onClick={() => onMove(c, "wip")}>Start interview</button>
+        </>}
+        {c.interview_stage === "wip" && <>
+          <button className="btn small ghost" disabled={busy} onClick={() => onMove(c, "invited")} title="Back to invited">↩</button>
+          <button className="btn small ghost danger" disabled={busy} onClick={() => onDrop()}>Drop off</button>
+          <button className="btn small primary offer-btn" disabled={busy} onClick={onOffer}>Make offer</button>
+        </>}
+        {c.interview_stage === "offered" && <>
+          <button className="btn small ghost" disabled={busy} onClick={() => onMove(c, "wip")}>Back to in progress</button>
+          <button className="btn small ghost danger" disabled={busy} onClick={() => onDrop("Declined offer")}>Offer declined</button>
+        </>}
+        {c.interview_stage === "dropped" && <button className="btn small" disabled={busy} onClick={() => onMove(c, "wip")}>Reinstate</button>}
       </div>
     </article>
   );
 }
 
-function DropDialog({ c, onCancel, onConfirm }: { c: CandidateView; onCancel: () => void; onConfirm: (reason: string) => void }) {
-  const [reason, setReason] = useState(DROP_REASONS[0]);
+function DropDialog({ c, preset, onCancel, onConfirm }: { c: CandidateView; preset?: string; onCancel: () => void; onConfirm: (reason: string) => void }) {
+  const [reason, setReason] = useState(preset ?? DROP_REASONS[0]);
   const [detail, setDetail] = useState("");
   const full = reason === "Other" ? detail.trim() || "Other" : detail.trim() ? `${reason}: ${detail.trim()}` : reason;
   return (
@@ -142,6 +157,24 @@ function DropDialog({ c, onCancel, onConfirm }: { c: CandidateView; onCancel: ()
         <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
           <button className="btn ghost" onClick={onCancel}>Cancel</button>
           <button className="btn primary" onClick={() => onConfirm(full)}>Mark dropped off</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OfferDialog({ c, onCancel, onConfirm }: { c: CandidateView; onCancel: () => void; onConfirm: (note: string) => void }) {
+  const [note, setNote] = useState("");
+  return (
+    <div className="dialog-back" onClick={onCancel}>
+      <div className="panel dialog" onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ marginTop: 0 }}>Make {c.name} an offer?</h2>
+        <p className="muted small">They move to “Offered”, the end of the process. Nothing is emailed; send the offer your usual way.</p>
+        <span className="field-label">Offer note (optional, visible to the team)</span>
+        <textarea rows={2} value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Offer sent 1 Oct · ₹28L · joining Nov" />
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+          <button className="btn ghost" onClick={onCancel}>Cancel</button>
+          <button className="btn primary offer-btn" onClick={() => onConfirm(note.trim())}>Mark offered</button>
         </div>
       </div>
     </div>
