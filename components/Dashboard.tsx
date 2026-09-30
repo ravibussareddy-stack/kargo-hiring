@@ -359,15 +359,21 @@ function MigrationHint() {
 /** Internal notes for Arjun and the team. Never sent to the candidate or to the AI. */
 function TeamNotes({ c, data, run, busy }: { c: CandidateView; data: DashboardData; run: RunFn; busy: boolean }) {
   const [author, setAuthor] = useAuthor();
-  const [body, setBody] = useState("");
+  // Unsaved text is kept per candidate, so it never follows you to another profile and isn't lost when you switch away.
+  const draftKey = `kargo-note-draft:${c.id}`;
+  const [body, setBodyState] = useState("");
+  useEffect(() => { try { setBodyState(localStorage.getItem(draftKey) ?? ""); } catch {} }, [draftKey]);
+  const setBody = (v: string) => { setBodyState(v); try { v ? localStorage.setItem(draftKey, v) : localStorage.removeItem(draftKey); } catch {} };
   if (!data.notesReady) return <MigrationHint />;
   const add = () => run("Saving note…", async () => {
     await api(`/api/candidates/${c.id}/notes`, "POST", { author, body });
     setBody("");
+    return `Note added to ${c.name}`;
   });
   return (
     <div>
-      <p className="muted small" style={{ marginTop: 0 }}>Visible to everyone who can log in. Never sent to the candidate.</p>
+      <h3 style={{ marginTop: 0 }}>Notes on {c.name}</h3>
+      <p className="muted small" style={{ marginTop: -6 }}>Saved to this profile only. Visible to everyone who can log in. Never sent to the candidate or the AI.</p>
       {c.notes.length === 0 ? <p className="empty-note">No notes yet.</p> : (
         <ul className="notes">
           {c.notes.map((n) => (
@@ -385,13 +391,13 @@ function TeamNotes({ c, data, run, busy }: { c: CandidateView; data: DashboardDa
         </ul>
       )}
       <div className="note-form">
-        <textarea rows={3} placeholder="Add a note for the team: impressions, follow-ups, reference checks…" value={body}
+        <textarea rows={3} placeholder={`Add a note about ${c.name ?? "this candidate"}: impressions, follow-ups, reference checks…`} value={body}
           onChange={(e) => setBody(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && body.trim()) add(); }} />
         <div className="row">
           <label className="small muted row" style={{ gap: 6 }}>As <input style={{ width: 130, padding: "5px 8px" }} value={author} onChange={(e) => setAuthor(e.target.value)} /></label>
           <span className="spacer" />
-          <span className="small muted hide-sm">⌘↵</span>
+          <span className="small muted hide-sm">{body.trim() ? "Draft kept until you add it · " : ""}⌘↵</span>
           <button className="btn primary" disabled={busy || !body.trim() || !author.trim()} onClick={add}>Add note</button>
         </div>
       </div>
@@ -514,6 +520,49 @@ function CvViewer({ c }: { c: CandidateView }) {
   );
 }
 
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button type="button" className="btn small ghost" onClick={async () => {
+      try { await navigator.clipboard.writeText(value); setDone(true); setTimeout(() => setDone(false), 1500); } catch {}
+    }} aria-label={`Copy ${label}`}>{done ? "Copied" : "Copy"}</button>
+  );
+}
+
+/** The candidate's own contact details, for emailing or calling them directly outside the app. */
+function ContactCard({ c, run, busy, testMode }: { c: CandidateView; run: RunFn; busy: boolean; testMode: boolean }) {
+  const e = c.email_draft;
+  const mailto = c.email
+    ? `mailto:${c.email}?${new URLSearchParams(e ? { subject: e.subject, body: e.body } : {}).toString().replace(/\+/g, "%20")}`
+    : null;
+  return (
+    <div className="contact-card">
+      <h3>Contact</h3>
+      <div className="contact-row"><span className="muted">Name</span><b>{c.name ?? "—"}</b></div>
+      <div className="contact-row">
+        <span className="muted">Email</span>
+        {c.email ? <><a href={`mailto:${c.email}`}>{c.email}</a><CopyButton value={c.email} label="email" /></> : <span className="faint">Not found in CV</span>}
+      </div>
+      <div className="contact-row">
+        <span className="muted">Phone</span>
+        {c.phone.length ? <><span>{c.phone[0]}</span><CopyButton value={c.phone[0]} label="phone" /></> : <span className="faint">Not found in CV</span>}
+      </div>
+      {mailto && c.status !== "sent" && (
+        <div className="contact-actions">
+          <a className="btn small" href={mailto}>Email directly ↗</a>
+          <span className="small muted">Opens your mail app with this draft filled in{testMode ? ", to their real address (test mode only covers the Send button)" : ""}.</span>
+          <span className="spacer" />
+          <button className="btn small ghost" disabled={busy}
+            onClick={() => confirm(`Mark the email to ${c.name} as sent? Use this if you emailed them yourself. The Send button will be locked.`) &&
+              run("Marking as sent…", async () => { await api(`/api/candidates/${c.id}/mark-sent`); return `${c.name} marked as sent`; })}>
+            I sent it myself
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 type DrawerTab = "summary" | "evidence" | "cv" | "interview" | "notes" | "email";
 
 export function Drawer({ c, role, criteria, data, run, busy, onClose }: {
@@ -583,6 +632,16 @@ export function Drawer({ c, role, criteria, data, run, busy, onClose }: {
             <div className="fit">
               <div><h3>Why they fit</h3><ul className="bullets pro">{pros.map((l, i) => <li key={i}>{l}</li>)}</ul></div>
               <div><h3>Risks</h3><ul className="bullets con">{cons.map((l, i) => <li key={i}>{l}</li>)}</ul></div>
+              {c.notes.length > 0 && (() => {
+                const n = c.notes[c.notes.length - 1];
+                return (
+                  <div className="latest-note">
+                    <h3>Latest team note <span className="muted" style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>· {c.notes.length} total</span></h3>
+                    <p>“{n.body}”</p>
+                    <span className="small muted">{n.author} · {new Date(n.created_at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+                  </div>
+                );
+              })()}
               <AiSignalCard s={c.ai_signal} />
             </div>
           )}
@@ -624,6 +683,7 @@ export function Drawer({ c, role, criteria, data, run, busy, onClose }: {
 
           {view === "email" && (
             <>
+              <ContactCard c={c} run={run} busy={busy} testMode={data.testMode} />
               {c.status !== "sent" && <PersonalNote c={c} data={data} run={run} busy={busy} />}
               <EmailEditor c={c} data={data} run={run} busy={busy} />
               <div className="danger-zone">
