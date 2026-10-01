@@ -12,7 +12,7 @@ Product Manager, FreightCo (2021 - 2024)
 - Ran discovery with 14 CHA operators at JNPT; tickets down 30%.`,
   cvTitle: `Curriculum Vitae
 Name: Arvind K. Menon
-Email: arvind.menon@gmail.com   Phone: (022) 2345-6789 / 9876543210
+Email: arvind.menon@example.com   Phone: (022) 2345-6789 / 9876543210
 https://github.com/arvindm  Location: Bengaluru, open to relocate
 Worked 2016 - 2019 2020 at Menon & Sons.`,
   bulletNotAddress: `Farhan Qureshi
